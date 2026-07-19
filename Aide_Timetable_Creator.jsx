@@ -49,14 +49,24 @@ const store = {
   },
 };
 
-/* ---------- Anthropic API helper ---------- */
+/* ---------- Anthropic API helper ----------
+   Keyless works inside claude.ai (proxied). Everywhere else (Netlify etc.)
+   an API key from Settings is sent browser-direct. */
+let API_KEY = "";
 async function askClaude(messages, maxTokens = 1000) {
+  const headers = { "Content-Type": "application/json" };
+  if (API_KEY) {
+    headers["x-api-key"] = API_KEY;
+    headers["anthropic-version"] = "2023-06-01";
+    headers["anthropic-dangerous-direct-browser-access"] = "true";
+  }
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: maxTokens, messages }),
+    headers,
+    body: JSON.stringify({ model: "claude-sonnet-5", max_tokens: maxTokens, messages }),
   });
   const data = await res.json();
+  if (data.error) throw new Error(data.error.message || "API error");
   return (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
 }
 const parseJSON = (text) => JSON.parse(text.replace(/```json|```/g, "").trim());
@@ -247,6 +257,7 @@ const FLAG_CATS = [
 ];
 const flagCat = (id) => FLAG_CATS.find((c) => c.id === id) || FLAG_CATS[0];
 const URGENT_REASONS = ["Behavioural escalation", "Medical", "Safety concern", "Soft signs building up", "Other"];
+const ASSIST_PROMPT = `You are helping run learning support (education support aides) at a Victorian government primary school. Using ONLY the people and constraints in the setup below, give practical suggestions for the problem. Rules: respect each aide's working days; prefer aides a student works well with; keep high-needs students covered first; name exactly who does what and when (which session/break). Offer 2-4 concrete options, best first, as short dot points with a one-line reason each. If information is missing, say what you'd need to know. You are advising, not deciding — the staff know the children.`;
 const RATING = [1, 2, 3, 4, 5];
 const RATING_LABEL = {
   engagement: ["Withdrawn", "Low", "Some", "Good", "Fully engaged"],
@@ -378,6 +389,12 @@ export default function App() {
   const [urgentNote, setUrgentNote] = useState("");
   const [urgentSent, setUrgentSent] = useState(false);
   const [bellOpen, setBellOpen] = useState(false);
+  const [apiKey, setApiKey] = useState("");
+  const [assistOpen, setAssistOpen] = useState(false);
+  const [assistQ, setAssistQ] = useState("");
+  const [assistBusy, setAssistBusy] = useState(false);
+  const [assistAnswer, setAssistAnswer] = useState("");
+  const [assistErr, setAssistErr] = useState("");
   const [newGoal, setNewGoal] = useState("");
   const [newStaffName, setNewStaffName] = useState("");
   const [passNew, setPassNew] = useState("");
@@ -414,6 +431,7 @@ export default function App() {
           if (d.reflections) setReflections(d.reflections);
           if (d.activity) setActivity(d.activity);
           if (d.lastSeen) setLastSeen(d.lastSeen);
+          if (d.apiKey) setApiKey(d.apiKey);
         }
       } catch {}
       storeLoaded.current = true;
@@ -436,12 +454,12 @@ export default function App() {
   }, []);
   useEffect(() => {
     if (!storeLoaded.current) return;
-    const doc = JSON.stringify({ aides, students, classes, plan, yard, yardAreas, extraStaff, dayOv, adminPass, notifyGroup, flags, reflections, activity, lastSeen });
+    const doc = JSON.stringify({ aides, students, classes, plan, yard, yardAreas, extraStaff, dayOv, adminPass, notifyGroup, flags, reflections, activity, lastSeen, apiKey });
     store.set("aide-tt-doc", doc);
     setSavedMsg("Saved");
     const t = setTimeout(() => setSavedMsg(""), 1200);
     return () => clearTimeout(t);
-  }, [aides, students, classes, plan, yard, yardAreas, extraStaff, dayOv, adminPass, notifyGroup, flags, reflections, activity, lastSeen]);
+  }, [aides, students, classes, plan, yard, yardAreas, extraStaff, dayOv, adminPass, notifyGroup, flags, reflections, activity, lastSeen, apiKey]);
   useEffect(() => {
     if (!sessionLoaded.current) return;
     store.set("aide-tt-session", JSON.stringify({ role, roleId, roleName }));
@@ -716,7 +734,7 @@ export default function App() {
 
   /* ---------- backup — belt-and-braces when browser storage isn't available ---------- */
   const exportData = () => {
-    const doc = JSON.stringify({ aides, students, classes, plan, yard, yardAreas, extraStaff, dayOv, adminPass, notifyGroup, flags, reflections, activity, lastSeen }, null, 2);
+    const doc = JSON.stringify({ aides, students, classes, plan, yard, yardAreas, extraStaff, dayOv, adminPass, notifyGroup, flags, reflections, activity, lastSeen, apiKey }, null, 2);
     const blob = new Blob([doc], { type: "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -735,6 +753,7 @@ export default function App() {
       setAdminPass(d.adminPass || ""); setNotifyGroup(d.notifyGroup || ["Wellbeing Team"]);
       setFlags(d.flags || {}); setReflections(d.reflections || []);
       setActivity(d.activity || []); setLastSeen(d.lastSeen || {});
+      if (d.apiKey !== undefined) setApiKey(d.apiKey || "");
     } catch { window.alert("That file isn't a valid backup."); }
   };
   const loadSample = () => {
@@ -743,11 +762,46 @@ export default function App() {
     setNotifyGroup(s.notifyGroup); setFlags(s.flags); setReflections(s.reflections);
   };
 
+  /* ---------- AI assist — describe a problem, get options ---------- */
+  useEffect(() => { API_KEY = apiKey || ""; }, [apiKey]);
+  const assistContext = () => {
+    const lines = [];
+    lines.push(`Day blocks: ${BLOCKS.map((b) => `${b.label} ${b.time}`).join("; ")}`);
+    lines.push(`AIDES (working days): ${aides.map((a) => `${a.name} (${DAYS.filter((d) => a.days?.[d]).join("/") || "none"})${a.notes ? ` — ${a.notes}` : ""}`).join("; ")}`);
+    lines.push(`STUDENTS: ${students.map((s) =>
+      `${s.name} (${s.cls || "?"}, ideal ${s.idealPerDay}/day${(s.preferredAides || []).length ? `, works well with ${s.preferredAides.map((id) => aideById(id)?.name).filter(Boolean).join("+")}` : ""}${s.strategies ? `, strategies: ${s.strategies}` : ""}${s.notes ? `, ${s.notes}` : ""})`).join("; ")}`);
+    const ov = ovFor(day);
+    const sched = [];
+    aides.forEach((a) => {
+      if (!a.days?.[day]) return;
+      BLOCKS.forEach((b) => {
+        const ids = effPairs(day, b.id, a.id);
+        if (ids.length) sched.push(`${a.name} ${b.label}: ${ids.map((id) => studentById(id)?.name).filter(Boolean).join("+")}`);
+      });
+    });
+    lines.push(`${DAY_LABEL[day]} schedule as it stands: ${sched.join("; ") || "empty"}`);
+    const absent = [...ov.absentS.map((id) => studentById(id)?.name), ...ov.absentA.map((id) => aideById(id)?.name)].filter(Boolean);
+    if (absent.length) lines.push(`Absent ${DAY_LABEL[day]}: ${absent.join(", ")}`);
+    if (ov.note) lines.push(`Day note: ${ov.note}`);
+    const recent = Object.entries(flags).flatMap(([sid, fs]) =>
+      (fs || []).filter((f) => f.ts > Date.now() - 7 * 86400000).map((f) => `${studentById(sid)?.name}: [${flagCat(f.category).label}] ${f.text}`)).slice(0, 15);
+    if (recent.length) lines.push(`Recent updates: ${recent.join(" | ")}`);
+    return lines.join("\n");
+  };
+  const runAssist = async () => {
+    setAssistBusy(true); setAssistErr(""); setAssistAnswer("");
+    try {
+      const out = await askClaude([{ role: "user", content: `${ASSIST_PROMPT}\n\n--- CURRENT SETUP ---\n${assistContext()}\n\n--- PROBLEM (from ${whoAmI()}) ---\n${assistQ.trim()}` }], 1500);
+      setAssistAnswer(out.trim());
+    } catch (e) { setAssistErr(friendlyErr(e, "Couldn't get suggestions — try again.")); }
+    setAssistBusy(false);
+  };
+
   /* ---------- import ---------- */
   const friendlyErr = (e, fallback) => {
     const msg = e?.message || "";
-    return /fetch/i.test(msg)
-      ? "AI parsing can't run in this hosted page — paste the .jsx version into claude.ai for imports, or type the data straight into the tabs."
+    return /fetch|api key|authentication/i.test(msg)
+      ? "AI can't run here yet — an admin can add an Anthropic API key in Settings, or use the .jsx version pasted into claude.ai."
       : msg || fallback;
   };
   const runImport = async (text) => {
@@ -1136,6 +1190,10 @@ export default function App() {
                   {unreadActivity().length}
                 </span>
               )}
+            </button>
+            <button onClick={() => { setAssistOpen(true); setAssistErr(""); }}
+              style={{ ...S.btnGhost, padding: "8px 16px", color: T.blueDeep, borderColor: T.blueLine, background: T.blueSoft }}>
+              ✦ Assist
             </button>
             <button onClick={() => { setUrgentOpen(true); setUrgentSent(false); setUrgentStudent(null); setUrgentReason(URGENT_REASONS[0]); setUrgentNote(""); }}
               style={{ ...S.btn, background: "#DC2626", boxShadow: "0 1px 2px rgba(220,38,38,.35), 0 6px 16px rgba(220,38,38,.25)", padding: "8px 16px" }}>
@@ -2161,6 +2219,17 @@ export default function App() {
               </div>
             </div>
             <div style={{ ...S.card, padding: 20 }}>
+              <span style={S.eyebrow}>AI — Assist & imports</span>
+              <div style={{ fontSize: 12, color: T.sub, margin: "8px 0 12px", lineHeight: 1.6 }}>
+                Powers the ✦ Assist button (describe a problem, get options) and Import parsing.
+                Inside claude.ai no key is needed. On a hosted site (e.g. Netlify), paste an Anthropic API key —
+                it stays in this browser only. Use a low-spend-limit key from console.anthropic.com.
+              </div>
+              <label style={S.label}>Anthropic API key</label>
+              <input style={S.input} type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value.trim())} placeholder="sk-ant-…" />
+              {apiKey && <div style={{ marginTop: 8 }}><Pill tone="green" style={{ fontSize: 10.5 }}>Key set — AI features active on this device</Pill></div>}
+            </div>
+            <div style={{ ...S.card, padding: 20 }}>
               <span style={S.eyebrow}>Privacy & data</span>
               <div style={{ fontSize: 12.5, color: T.sub, marginTop: 8, lineHeight: 1.8 }}>
                 · Closed prototype — everything lives in this browser only; nothing is transmitted.<br />
@@ -2478,6 +2547,40 @@ export default function App() {
           </div>
         );
       })()}
+
+      {/* ================= AI ASSIST MODAL ================= */}
+      {assistOpen && (
+        <div onClick={() => setAssistOpen(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.4)", zIndex: 55, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()}
+            style={{ ...S.card, boxShadow: T.shadowLift, width: 600, maxWidth: "100%", maxHeight: "86vh", overflowY: "auto", padding: 20 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <div style={{ fontFamily: F.display, fontWeight: 800, fontSize: 17 }}>✦ Assist</div>
+              <Pill tone="blue" style={{ padding: "1px 9px", fontSize: 9.5 }}>{DAY_LABEL[day]}</Pill>
+              <span style={{ flex: 1 }} />
+              <button style={{ ...S.btnGhost, padding: "3px 10px", fontSize: 12 }} onClick={() => setAssistOpen(false)}>✕</button>
+            </div>
+            <div style={{ fontSize: 12, color: T.sub, marginBottom: 12, lineHeight: 1.55 }}>
+              Describe the problem — Claude reads your aides, students, {DAY_LABEL[day]}'s schedule, absences and this
+              week's updates, and offers options. Suggestions only: you know the children.
+            </div>
+            <textarea style={{ ...S.input, minHeight: 76, resize: "vertical" }} value={assistQ} onChange={(e) => setAssistQ(e.target.value)}
+              placeholder={"e.g. Lisa is away tomorrow and Emerson needs full-day cover…\nCooper escalates at lunch transitions — what could we try?\nThursday's plan is empty because of the strike — draft one."}
+              autoFocus />
+            <div style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <button style={S.btn} disabled={assistBusy || !assistQ.trim()} onClick={runAssist}>
+                {assistBusy ? "Thinking…" : "✦ Suggest options"}
+              </button>
+              {assistErr && <Pill tone="red" style={{ fontSize: 11 }}>{assistErr}</Pill>}
+            </div>
+            {assistAnswer && (
+              <div style={{ marginTop: 14, border: `1px solid ${T.blueLine}`, background: T.blueSoft, borderRadius: 12, padding: "12px 15px", fontSize: 13, lineHeight: 1.65, whiteSpace: "pre-wrap" }}>
+                {assistAnswer}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ================= URGENT SUPPORT MODAL (simulated) ================= */}
       {urgentOpen && (() => {
