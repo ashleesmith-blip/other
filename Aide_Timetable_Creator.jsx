@@ -221,6 +221,9 @@ Rules: days = only the weekdays the aide works (all five if unstated). cls = the
 const CLASSTT_PROMPT = `You are reading one or more primary-school class timetables. From the source text below, extract each class's weekly timetable mapped onto six 50-minute sessions per day (Session 1–2, recess, Session 3–4, lunch, Session 5–6). Respond with ONLY valid JSON, no prose, in exactly this shape:
 {"classes":[{"name":"3B","year":"3","tt":{"Mon":["","","","","",""],"Tue":["","","","","",""],"Wed":["","","","","",""],"Thu":["","","","","",""],"Fri":["","","","","",""]}}]}
 Rules: each day is an array of exactly 6 subject strings in session order (use "" for unknown). Fold double sessions into two identical entries. Use short subject names ("Reading", "Maths", "PE", "Art"). name = class code, year = year level.`;
+const WEEKTT_PROMPT = `You are reading an existing primary-school aide / education-support timetable (any layout — grid, list, roster). Extract every support assignment you can find. Respond with ONLY valid JSON, no prose, in exactly this shape:
+{"assignments":[{"day":"Mon","block":"s1","aide":"Karen M","students":["Archie B"]}]}
+Rules: day = Mon/Tue/Wed/Thu/Fri. block = which part of the six-session day the assignment falls in: s1 (9:00–9:50), s2 (9:50–10:40), s3 (11:10–12:00), s4 (12:00–12:50), s5 (1:40–2:30), s6 (2:30–3:20), or "recess"/"lunch" for break-time support. Map times or period names onto the closest block; split double sessions or full mornings into one entry per block. aide = the staff member's name exactly as written. students = the supported student name(s) in that block (a class code like "3B" is NOT a student — skip entries with no identifiable student). One entry per aide per block per day; include every day you can find.`;
 
 /* ---------- sample data — a quick way to see the tool working ---------- */
 const SAMPLE = () => {
@@ -543,25 +546,43 @@ export default function App() {
   };
 
   /* ---------- import ---------- */
+  const friendlyErr = (e, fallback) => {
+    const msg = e?.message || "";
+    return /fetch/i.test(msg)
+      ? "AI parsing can't run in this hosted page — paste the .jsx version into claude.ai for imports, or type the data straight into the tabs."
+      : msg || fallback;
+  };
   const runImport = async (text) => {
     setImpBusy(true); setImpErr(""); setImpPreview(null);
     try {
-      const prompt = impMode === "preinfo" ? PREINFO_PROMPT : CLASSTT_PROMPT;
+      const prompt = impMode === "preinfo" ? PREINFO_PROMPT : impMode === "classtt" ? CLASSTT_PROMPT : WEEKTT_PROMPT;
       const out = await askClaude([{ role: "user", content: `${prompt}\n\n--- SOURCE ---\n${text.slice(0, 40000)}` }], 4000);
       setImpPreview(parseJSON(out));
-    } catch (e) { setImpErr(e?.message || "Couldn't parse that — try cleaner text or a different file."); }
+    } catch (e) { setImpErr(friendlyErr(e, "Couldn't parse that — try cleaner text or a different file.")); }
     setImpBusy(false);
   };
   const onImportFile = async (file) => {
     if (!file) return;
     setImpBusy(true); setImpErr("");
     try { const text = await extractSourceText(file); setImpText(text); await runImport(text); }
-    catch (e) { setImpErr(e?.message || "Couldn't read that file."); setImpBusy(false); }
+    catch (e) { setImpErr(friendlyErr(e, "Couldn't read that file.")); setImpBusy(false); }
+  };
+  /* match "Karen" / "Karen M" style variants — exact first, then unique first-name */
+  const matchByName = (list, name) => {
+    const n = String(name || "").trim().toLowerCase();
+    if (!n) return null;
+    let hit = list.find((x) => x.name.trim().toLowerCase() === n);
+    if (!hit) {
+      const first = n.split(/\s+/)[0];
+      const c = list.filter((x) => x.name.trim().toLowerCase().split(/\s+/)[0] === first);
+      if (c.length === 1) hit = c[0];
+    }
+    return hit || null;
   };
   const applyPreview = () => {
     if (!impPreview) return;
     if (impMode === "preinfo") {
-      const byName = (list, name) => list.find((x) => x.name.trim().toLowerCase() === String(name || "").trim().toLowerCase());
+      const byName = matchByName;
       let nextAides = [...aides];
       (impPreview.aides || []).forEach((ia) => {
         const days = Object.fromEntries(DAYS.map((d) => [d, !ia.days?.length || ia.days.includes(d)]));
@@ -582,6 +603,37 @@ export default function App() {
         else if (is.name?.trim()) nextStudents.push({ id: uid(), name: is.name.trim(), ...base });
       });
       setAides(nextAides); setStudents(nextStudents);
+    } else if (impMode === "weektt") {
+      const asg = (impPreview.assignments || []).filter((x) => DAYS.includes(x.day) && BLOCKS.some((b) => b.id === x.block));
+      const nextAides = aides.map((a) => ({ ...a, days: { ...a.days } }));
+      const nextStudents = [...students];
+      const resolveAide = (name) => {
+        let hit = matchByName(nextAides, name);
+        if (!hit && String(name || "").trim()) {
+          hit = { id: uid(), name: String(name).trim(), days: Object.fromEntries(DAYS.map((d) => [d, false])), notes: "" };
+          nextAides.push(hit);
+        }
+        return hit;
+      };
+      const resolveStudent = (name) => {
+        let hit = matchByName(nextStudents, name);
+        if (!hit && String(name || "").trim()) {
+          hit = { id: uid(), name: String(name).trim(), cls: "", year: "", idealPerDay: 2, fundedHrs: null, prioritySubjects: [], preferredAides: [], notes: "" };
+          nextStudents.push(hit);
+        }
+        return hit;
+      };
+      const nextPlan = { ...plan };
+      asg.forEach((x) => {
+        const a = resolveAide(x.aide);
+        if (!a) return;
+        a.days[x.day] = true; // seen on the timetable = works that day
+        const ids = (x.students || []).map((s2) => resolveStudent(s2)?.id).filter(Boolean);
+        if (!ids.length) return;
+        const k = `${x.day}|${x.block}|${a.id}`;
+        nextPlan[k] = [...new Set([...(nextPlan[k] || []), ...ids])];
+      });
+      setAides(nextAides); setStudents(nextStudents); setPlan(nextPlan);
     } else {
       setClasses((c) => {
         const next = { ...c };
@@ -594,7 +646,7 @@ export default function App() {
       });
     }
     setImpPreview(null); setImpText("");
-    setView(impMode === "preinfo" ? "team" : "classes");
+    setView(impMode === "preinfo" ? "team" : impMode === "weektt" ? "week" : "classes");
   };
 
   /* ---------- cell-editor ranking ---------- */
@@ -1344,7 +1396,7 @@ export default function App() {
         {view === "import" && (
           <div style={{ ...S.card, padding: 22 }}>
             <div style={{ display: "flex", gap: 8, marginBottom: 16, alignItems: "center", flexWrap: "wrap" }}>
-              {[["preinfo", "Pre-information — aides & students"], ["classtt", "Year-level class timetables"]].map(([k, lab]) => (
+              {[["preinfo", "Pre-information — aides & students"], ["classtt", "Year-level class timetables"], ["weektt", "Current aide timetable"]].map(([k, lab]) => (
                 <button key={k} onClick={() => { setImpMode(k); setImpPreview(null); setImpErr(""); }}
                   style={{ ...S.btnGhost, ...(impMode === k ? { background: T.blueSoft, borderColor: T.blueLine, color: T.blueDeep } : {}) }}>
                   {lab}
@@ -1354,7 +1406,9 @@ export default function App() {
             <div style={{ fontSize: 13, color: T.sub, lineHeight: 1.6, marginBottom: 14 }}>
               {impMode === "preinfo"
                 ? "Paste or upload anything that lists your aides and students — a handover doc, funding spreadsheet, last term's timetable, an email. It's parsed into aides (with working days) and students (class, ideal sessions, funded hours, priority subjects, preferred aides) and pre-fills the Team tab. Existing names are updated, new ones added."
-                : "Upload or paste a year-level timetable — the schedule is mapped onto the six-session day for each class, so the week grid knows what every student's class is doing in every session."}
+                : impMode === "classtt"
+                ? "Upload or paste a year-level timetable — the schedule is mapped onto the six-session day for each class, so the week grid knows what every student's class is doing in every session."
+                : "Already running an aide timetable in Word, Excel or on paper? Upload or paste it and every assignment is read straight into the Week grid — mapped onto the six-session day, with break-time support landing on recess and lunch. Aides and students it mentions who aren't in the Team tab yet are created automatically (aides get the days they appear on), and existing cells are kept: the import fills on top of them."}
             </div>
             <div style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "center", flexWrap: "wrap" }}>
               <button style={S.btnGhost} onClick={() => fileRef.current?.click()} disabled={impBusy}>Upload file (.docx · .xlsx · .pdf · image)</button>
@@ -1366,7 +1420,9 @@ export default function App() {
               value={impText} onChange={(e) => setImpText(e.target.value)}
               placeholder={impMode === "preinfo"
                 ? "Karen works Mon–Fri. Priya works Mon, Tue, Wed and is great with Cooper (5C, 16 funded hours, needs support in Writing and Maths, ideally 4 sessions a day)…"
-                : "Year 3 timetable…\nMon 9:00 Reading, 9:50 Writing, 11:10 Maths…"} />
+                : impMode === "classtt"
+                ? "Year 3 timetable…\nMon 9:00 Reading, 9:50 Writing, 11:10 Maths…"
+                : "Mon: Karen with Archie 9:00–10:40, Cooper after recess…\nTue: Priya — Billie session 1, lunch support with Cooper…"} />
             <div style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "center" }}>
               <button style={S.btn} disabled={impBusy || !impText.trim()} onClick={() => runImport(impText)}>
                 {impBusy ? "Reading…" : "✦ Parse with Claude"}
@@ -1388,6 +1444,26 @@ export default function App() {
                         {(s2.preferredAides || []).length ? ` · with: ${s2.preferredAides.join(", ")}` : ""}</div>
                     ))}
                     {!(impPreview.aides || []).length && !(impPreview.students || []).length && <div style={{ color: T.sub }}>Nothing recognisable found.</div>}
+                  </div>
+                ) : impMode === "weektt" ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12.5 }}>
+                    {(() => {
+                      const asg = (impPreview.assignments || []).filter((x) => DAYS.includes(x.day) && BLOCKS.some((b) => b.id === x.block));
+                      const blockLabel = (id) => BLOCKS.find((b) => b.id === id)?.label || id;
+                      const newAides = [...new Set(asg.map((x) => x.aide).filter((n) => n && !matchByName(aides, n)))];
+                      const newStudents = [...new Set(asg.flatMap((x) => x.students || []).filter((n) => n && !matchByName(students, n)))];
+                      return (
+                        <>
+                          {DAYS.filter((d) => asg.some((x) => x.day === d)).map((d) => (
+                            <div key={d}>📅 <b>{DAY_LABEL[d]}</b> — {asg.filter((x) => x.day === d)
+                              .map((x) => `${x.aide} → ${(x.students || []).join(", ")} (${blockLabel(x.block)})`).join(" · ")}</div>
+                          ))}
+                          {newAides.length > 0 && <div style={{ color: T.amber }}>Will add aides: <b>{newAides.join(", ")}</b></div>}
+                          {newStudents.length > 0 && <div style={{ color: T.amber }}>Will add students: <b>{newStudents.join(", ")}</b></div>}
+                          {!asg.length && <div style={{ color: T.sub }}>No assignments recognised — check the timetable names days and students.</div>}
+                        </>
+                      );
+                    })()}
                   </div>
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12.5 }}>
