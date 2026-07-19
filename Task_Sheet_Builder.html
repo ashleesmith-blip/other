@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Task Sheet Builder</title>
+<style>
+  /* ---------- tokens ---------- */
+  :root {
+    --green: #329075;
+    --green-dark: #26735d;
+    --green-soft: #6fb6a1;
+    --green-tint: #f4faf8;
+    --green-border: #cfe4dd;
+    --ink: #262d3e;
+    --body: #3f4652;
+    --muted: #80858f;
+    --rule: #e3e6ea;
+    --chrome-bg: #eef3f1;
+    --panel-bg: #ffffff;
+    --field-bg: #ffffff;
+    --field-border: #c9d6d1;
+    --danger: #c0504b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --chrome-bg: #1a2320;
+      --panel-bg: #222d29;
+      --field-bg: #1c2522;
+      --field-border: #3a4a44;
+      --ink-ui: #e8ecea;
+      --body-ui: #c3ccc8;
+      --muted-ui: #8a958f;
+    }
+  }
+  :root[data-theme="light"] {
+    --chrome-bg: #eef3f1; --panel-bg: #ffffff; --field-bg: #ffffff; --field-border: #c9d6d1;
+    --ink-ui: #262d3e; --body-ui: #3f4652; --muted-ui: #80858f;
+  }
+  :root[data-theme="dark"] {
+    --chrome-bg: #1a2320; --panel-bg: #222d29; --field-bg: #1c2522; --field-border: #3a4a44;
+    --ink-ui: #e8ecea; --body-ui: #c3ccc8; --muted-ui: #8a958f;
+  }
+  :root { --ink-ui: var(--ink); --body-ui: var(--body); --muted-ui: var(--muted); }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink-ui: #e8ecea; --body-ui: #c3ccc8; --muted-ui: #8a958f; }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: "Helvetica Neue", Arial, "Segoe UI", sans-serif;
+    background: var(--chrome-bg);
+    color: var(--body-ui);
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  /* ---------- app frame ---------- */
+  .topbar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 18px;
+    background: var(--panel-bg);
+    border-bottom: 1px solid var(--green-border);
+    position: sticky; top: 0; z-index: 20;
+    flex-wrap: wrap;
+  }
+  .topbar .brand { display: flex; flex-direction: column; margin-right: auto; }
+  .topbar .brand .eyebrow-ui { color: var(--green); font-size: 9px; font-weight: 700; letter-spacing: 1.4px; text-transform: uppercase; }
+  .topbar .brand h1 { margin: 0; font-size: 17px; font-weight: 800; letter-spacing: -0.3px; color: var(--ink-ui); }
+
+  button {
+    font: inherit; cursor: pointer;
+    border-radius: 8px;
+    border: 1px solid var(--green-border);
+    background: var(--panel-bg);
+    color: var(--green);
+    font-weight: 700;
+    padding: 7px 13px;
+  }
+  button:hover { background: var(--green-tint); color: var(--green-dark); }
+  button:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+  button.primary { background: var(--green); border-color: var(--green); color: #fff; }
+  button.primary:hover { background: var(--green-dark); }
+  button.ghost { border-color: transparent; background: transparent; }
+  button.tiny { padding: 3px 8px; font-size: 11px; border-radius: 6px; }
+  button.danger { color: var(--danger); }
+  button.danger:hover { background: #faf0ef; }
+
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(330px, 430px) 1fr;
+    gap: 0;
+    align-items: start;
+  }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+
+  /* ---------- editor ---------- */
+  .editor {
+    padding: 16px 16px 60px 18px;
+    max-height: calc(100vh - 58px);
+    overflow-y: auto;
+  }
+  .panel {
+    background: var(--panel-bg);
+    border: 1px solid var(--green-border);
+    border-radius: 10px;
+    padding: 13px 14px;
+    margin-bottom: 12px;
+  }
+  .panel-label {
+    color: var(--green);
+    font-size: 9.5px; font-weight: 700; letter-spacing: 1.4px; text-transform: uppercase;
+    margin: 0 0 9px 0;
+  }
+  .field-row { margin-bottom: 9px; }
+  .field-row label { display: block; font-size: 10.5px; font-weight: 700; color: var(--muted-ui); letter-spacing: 0.4px; text-transform: uppercase; margin-bottom: 3px; }
+  input[type="text"], textarea, select {
+    width: 100%; font: inherit; color: var(--ink-ui);
+    background: var(--field-bg);
+    border: 1px solid var(--field-border);
+    border-radius: 7px;
+    padding: 7px 9px;
+  }
+  input[type="text"]:focus, textarea:focus, select:focus { outline: 2px solid var(--green-soft); outline-offset: 0; border-color: var(--green-soft); }
+  textarea { resize: vertical; min-height: 58px; line-height: 1.5; }
+  .checks { display: flex; gap: 14px; flex-wrap: wrap; }
+  .checks label { display: flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; color: var(--body-ui); cursor: pointer; text-transform: none; letter-spacing: 0; }
+  .checks input { accent-color: var(--green); width: 15px; height: 15px; }
+
+  .sec-card { border: 1px solid var(--green-border); border-radius: 9px; padding: 10px 11px; margin-bottom: 10px; background: var(--panel-bg); }
+  .sec-card .sec-head { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+  .sec-card .sec-head .n {
+    flex: none; width: 20px; height: 20px; border-radius: 50%;
+    background: var(--green); color: #fff; font-size: 10.5px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .sec-card .sec-head input[type="text"] { font-weight: 700; }
+  .sec-tools { display: flex; gap: 4px; margin-top: 8px; flex-wrap: wrap; }
+  .help-toggle { font-size: 11.5px; color: var(--green); background: none; border: none; padding: 0; font-weight: 700; text-decoration: underline; }
+  .help-body { font-size: 11.5px; color: var(--muted-ui); margin-top: 7px; line-height: 1.6; }
+  .help-body code { background: var(--green-tint); color: var(--green-dark); border-radius: 4px; padding: 0 4px; font-size: 11px; }
+  @media (prefers-color-scheme: dark) { .help-body code { background: #2b3a34; color: #9fd4c2; } }
+  .hint-ui { font-size: 11px; color: var(--muted-ui); margin-top: 4px; }
+
+  /* ---------- preview / sheet ---------- */
+  .preview-wrap { padding: 22px; display: flex; justify-content: center; max-height: calc(100vh - 58px); overflow: auto; }
+  .sheet {
+    width: 210mm; min-height: 297mm;
+    background: #ffffff;
+    box-shadow: 0 3px 24px rgba(30, 55, 45, 0.16);
+    padding: 14mm 15mm;
+    color: var(--body);
+    font-size: 11.2px;
+    line-height: 1.5;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+
+  /* worksheet aesthetic (matches CPS task sheets) */
+  .sheet .eyebrow { color: var(--green); font-size: 9.5px; font-weight: 700; letter-spacing: 1.4px; text-transform: uppercase; margin: 0 0 4px 0; }
+  .sheet h2.title { color: var(--ink); font-size: 25px; font-weight: 800; letter-spacing: -0.4px; margin: 0 0 12px 0; line-height: 1.1; text-wrap: balance; }
+  .sheet .intent { border: 1px solid var(--green-border); border-radius: 9px; padding: 9px 13px; font-size: 11.5px; margin: 0 0 12px 0; }
+  .sheet .intent b { color: var(--green); }
+  .sheet .namebar { display: flex; gap: 22px; margin: 0 0 16px 0; font-size: 11px; }
+  .sheet .namebar .f { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+  .sheet .namebar .f.grow { flex: 1; }
+  .sheet .namebar .lbl { color: var(--green); font-weight: 700; font-size: 9.5px; letter-spacing: 1px; text-transform: uppercase; }
+  .sheet .namebar .ln { flex: 1; border-bottom: 1.4px dotted #b9c0c8; min-width: 60px; height: 15px; }
+  .sheet .sec-label { color: var(--green); font-size: 9.5px; font-weight: 700; letter-spacing: 1.4px; text-transform: uppercase; margin: 0 0 8px 0; }
+  .sheet .instructions { border: 1px solid var(--green-border); border-radius: 9px; padding: 10px 14px; margin: 0 0 16px 0; }
+  .sheet .instructions b, .sheet .intent b.ink { color: var(--ink); }
+  .sheet .grid { display: grid; gap: 10px 14px; }
+  .sheet .grid.c2 { grid-template-columns: 1fr 1fr; }
+  .sheet .grid.c1 { grid-template-columns: 1fr; }
+  .sheet .card { border: 1px solid var(--green-border); border-radius: 9px; padding: 9px 12px 10px 12px; break-inside: avoid; page-break-inside: avoid; }
+  .sheet .card-head { display: flex; align-items: center; gap: 8px; margin: 0 0 7px 0; }
+  .sheet .num { flex: none; width: 19px; height: 19px; border-radius: 50%; background: var(--green); color: #fff; font-size: 10.5px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+  .sheet .card-title { color: var(--ink); font-weight: 700; font-size: 12px; }
+  .sheet .note { color: var(--muted); font-size: 10px; margin: -2px 0 4px 0; }
+  .sheet ol.q { list-style: none; margin: 0; padding: 0; counter-reset: q; }
+  .sheet ol.q > li { counter-increment: q; position: relative; padding: 3px 0 3px 20px; font-size: 11px; }
+  .sheet ol.q > li::before { content: counter(q, lower-alpha) ")"; position: absolute; left: 0; top: 3px; color: var(--green-soft); font-weight: 700; font-size: 10.5px; }
+  .sheet ol.q > li + li { border-top: 1px dashed #eef1f0; }
+  .sheet .blank { display: inline-block; border-bottom: 1.4px solid #c3cbcf; height: 12px; vertical-align: bottom; margin: 0 2px; }
+  .sheet .ansline { display: block; border-bottom: 1.4px dotted #b9c0c8; height: 16px; margin: 6px 0 2px 0; }
+  .sheet .drawbox { display: inline-block; border: 1px dashed #cfd4da; border-radius: 4px; vertical-align: middle; margin: 4px 4px 2px 0; }
+  .sheet .qhint { color: var(--muted); font-size: 10px; }
+  .sheet b { color: var(--ink); }
+  .sheet .footer-note { margin-top: 14px; color: var(--green); font-size: 9.5px; font-weight: 700; letter-spacing: 1.4px; text-transform: uppercase; }
+  .sheet .footer-line { color: var(--muted); font-size: 10.5px; font-weight: 400; letter-spacing: 0; text-transform: none; margin-top: 4px; display: inline; margin-left: 4px; }
+
+  /* ---------- print: only the sheet ---------- */
+  @page { size: A4; margin: 14mm 15mm; }
+  @media print {
+    body { background: #fff; }
+    .topbar, .editor { display: none !important; }
+    .layout { display: block; }
+    .preview-wrap { padding: 0; max-height: none; overflow: visible; display: block; }
+    .sheet { width: auto; min-height: 0; box-shadow: none; padding: 0; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="eyebrow-ui">CPS &middot; Worksheet Tools</span>
+    <h1>Task Sheet Builder</h1>
+  </div>
+  <select id="presetSelect" aria-label="Load a preset" style="width:auto">
+    <option value="">Load a preset&hellip;</option>
+    <option value="blank">Blank sheet</option>
+    <option value="jemm">Maths Check-In (JEMM student version)</option>
+    <option value="jemmplus">Maths Check-In (JEMM+ student version)</option>
+  </select>
+  <button id="importBtn">Paste a task&hellip;</button>
+  <button id="exportBtn">Export JSON</button>
+  <button id="importJsonBtn">Import JSON</button>
+  <input type="file" id="jsonFile" accept=".json" style="display:none">
+  <button class="primary" id="printBtn">Print / Save PDF</button>
+</header>
+
+<div class="layout">
+
+  <!-- ===================== EDITOR ===================== -->
+  <div class="editor">
+
+    <div class="panel">
+      <p class="panel-label">Sheet header</p>
+      <div class="field-row"><label for="f-eyebrow">Small label (top)</label><input type="text" id="f-eyebrow" data-k="eyebrow"></div>
+      <div class="field-row"><label for="f-title">Title</label><input type="text" id="f-title" data-k="title"></div>
+      <div class="field-row"><label for="f-youcan">&ldquo;You can&rdquo; line <span style="font-weight:400;text-transform:none">(leave empty to hide)</span></label><input type="text" id="f-youcan" data-k="youcan"></div>
+      <div class="field-row">
+        <label>Student fields</label>
+        <div class="checks">
+          <label><input type="checkbox" id="f-name" data-k="showName"> Name</label>
+          <label><input type="checkbox" id="f-date" data-k="showDate"> Date</label>
+          <label><input type="checkbox" id="f-year" data-k="showYear"> Year</label>
+        </div>
+      </div>
+      <div class="field-row"><label for="f-instr">Instructions box <span style="font-weight:400;text-transform:none">(leave empty to hide)</span></label><textarea id="f-instr" data-k="instructions"></textarea></div>
+      <div class="field-row">
+        <label for="f-cols">Layout</label>
+        <select id="f-cols" data-k="columns">
+          <option value="2">Two columns of cards</option>
+          <option value="1">One column of cards</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="panel">
+      <p class="panel-label">Sections &amp; questions</p>
+      <button class="help-toggle" id="helpToggle" aria-expanded="false">Formatting help</button>
+      <div class="help-body" id="helpBody" hidden>
+        One question per line inside a section.<br>
+        <code>___</code> (3+ underscores) &rarr; an answer blank; more underscores = a longer blank.<br>
+        <code>[line]</code> &rarr; a full-width dotted answer line.<br>
+        <code>[box]</code> &rarr; a small drawing box &middot; <code>[bigbox]</code> &rarr; a large one.<br>
+        <code>**bold**</code> &rarr; <b>bold</b> &middot; <code>{{small grey hint}}</code> &rarr; a hint.<br>
+        The optional note appears in small grey text under the section title (good for shared data, e.g. <i>Dogs: 5&ensp;Cats: 3</i>).
+      </div>
+      <div id="sections"></div>
+      <button id="addSection" style="width:100%">+ Add section</button>
+    </div>
+
+    <div class="panel">
+      <p class="panel-label">Sheet footer</p>
+      <div class="field-row"><label for="f-foottitle">Footer heading <span style="font-weight:400;text-transform:none">(leave empty to hide footer)</span></label><input type="text" id="f-foottitle" data-k="footerTitle"></div>
+      <div class="field-row"><label for="f-foottext">Footer message</label><input type="text" id="f-foottext" data-k="footerText"></div>
+      <p class="hint-ui">Changes save automatically in this browser. Use <b>Export JSON</b> to keep a copy or share a sheet with a colleague.</p>
+    </div>
+
+  </div>
+
+  <!-- ===================== PREVIEW ===================== -->
+  <div class="preview-wrap">
+    <div class="sheet" id="sheet" aria-label="Worksheet preview"></div>
+  </div>
+
+</div>
+
+<script>
+"use strict";
+
+/* ---------------- state ---------------- */
+const STORAGE_KEY = "cps-task-sheet-builder-v1";
+
+const BLANK = {
+  eyebrow: "Task",
+  title: "My Task Sheet",
+  youcan: "I can show what I know by trying every question.",
+  showName: true, showDate: true, showYear: false,
+  instructions: "**Try every question** and show your working where you can. If you get stuck, move on and come back to it.",
+  columns: "2",
+  footerTitle: "You did it!",
+  footerText: "Well done for trying every question. Hand your sheet to your teacher when you are finished.",
+  sections: [
+    { title: "Warm up", note: "", questions: ["3 + 2 = ___", "8 + 5 = ___"] }
+  ]
+};
+
+const PRESET_JEMM = {
+  eyebrow: "Diagnostic",
+  title: "Maths Check-In — My Starting Point",
+  youcan: "Have a go at every question. Show your working. It is okay if some are tricky — just try your best!",
+  showName: true, showDate: true, showYear: true,
+  instructions: "There are **15 short sections**. Each one has three questions. **Try every question** and show your working where you can. If you get stuck, move on and come back to it.",
+  columns: "2",
+  footerTitle: "You did it!",
+  footerText: "Well done for trying every question. Hand your sheet to your teacher when you are finished.",
+  sections: [
+    { title: "Counting", note: "", questions: [
+      "Count on from 3:  3,  4, ___, ___, ___",
+      "Count backwards from 10:  10,  9, ___, ___, ___",
+      "Count on by 2s:  2,  4, ___, ___, ___" ]},
+    { title: "Addition", note: "", questions: ["3 + 2 = ____","8 + 5 = ____","17 + 9 = ____"]},
+    { title: "Subtraction", note: "", questions: ["5 − 2 = ____","14 − 6 = ____","23 − 8 = ____"]},
+    { title: "Multiplication", note: "", questions: ["2 + 2 + 2 = ____ {{(3 groups of 2)}}","3 × 2 = ____","5 × 4 = ____"]},
+    { title: "Division", note: "", questions: [
+      "Share 6 lollies equally between 2 children. Each child gets ___ lollies.",
+      "10 ÷ 2 = ____","12 ÷ 3 = ____"]},
+    { title: "Number Patterns", note: "", questions: [
+      "What comes next?  1, 2, 3, 4, ___",
+      "What comes next?  2, 4, 6, 8, ___, ___",
+      "What comes next?  5, 10, 15, 20, ___, ___  Rule: __________" ]},
+    { title: "Fractions", note: "", questions: [
+      "Colour **½** of this shape: [box]",
+      "Shade **¼** of this shape: [box]",
+      "Which is bigger:  **½**  or  **¼** ? ____" ]},
+    { title: "Decimals & Number Words", note: "", questions: [
+      "Write the number:  seven = ____",
+      "Write the number:  twenty-three = ____",
+      "Is 0.5 the same as a half?  Circle:  **Yes** / **No**" ]},
+    { title: "Measurement", note: "", questions: [
+      "Circle the longer pencil: [box] [box]",
+      "Which is heavier?  Circle:  **a feather** / **a brick**",
+      "A ribbon is 10 cm long. You cut off 3 cm. How long is it now? ___ cm" ]},
+    { title: "Space (Shapes)", note: "", questions: [
+      "Name this shape: [box] ______",
+      "Name each: [box] [box] [box]",
+      "A ball is shaped like a ______.  A box is shaped like a ______." ]},
+    { title: "Data & Chance", note: "Pets chosen — Dogs: 5   Cats: 3   Fish: 2", questions: [
+      "Which pet do most children like? ______",
+      "How many children chose a pet altogether? ___",
+      "If you flip a coin, is it more likely to land on heads or tails, or equally likely? ________" ]},
+    { title: "Money", note: "", questions: [
+      "How much is a $2 coin worth? $ ___",
+      "$1 + $1 = $ ___",
+      "$2.00 + $1.50 = $ ____" ]},
+    { title: "Time", note: "", questions: [
+      "Is it morning or night when you eat breakfast? ______",
+      "What time does the clock show when both hands point to 12? ___:___",
+      "How many hours from 9:00 am to 12:00 pm? ___" ]},
+    { title: "Visual Perception", note: "", questions: [
+      "Copy this pattern exactly: [box] [line]",
+      "Which is the odd one out? [box] ____",
+      "Draw the other half to make it symmetrical: [bigbox]" ]},
+    { title: "Problem Solving", note: "", questions: [
+      "Tom has 4 apples. He gets 3 more. How many now? ___",
+      "Sara had 10 stickers. She gave 4 away. How many left? ___",
+      "There are 3 bags with 4 oranges in each bag. How many oranges altogether? ___" ]}
+  ]
+};
+
+const PRESET_JEMMPLUS = {
+  eyebrow: "Diagnostic",
+  title: "Maths Check-In — Showing My Skills",
+  youcan: "Have a go at every question. Show your working. It is okay if some are tricky — just try your best!",
+  showName: true, showDate: true, showYear: true,
+  instructions: "There are **15 short sections**. Each one has three questions. **Try every question** and show your working where you can. If you get stuck, move on and come back to it.",
+  columns: "2",
+  footerTitle: "You did it!",
+  footerText: "Well done for trying every question. Hand your sheet to your teacher when you are finished.",
+  sections: [
+    { title: "Counting", note: "", questions: [
+      "Count on by 2s:  14,  16, ___, ___, ___",
+      "Count back by 5s from 100:  100,  95, ___, ___, ___",
+      "Count back by 100s from 1,000:  1000, ____, ____, ____" ]},
+    { title: "Addition", note: "", questions: ["46 + 23 = ____","348 + 275 = ____","1,463 + 2,578 = _____"]},
+    { title: "Subtraction", note: "", questions: ["73 − 28 = ____","604 − 258 = ____","3,002 − 1,487 = _____"]},
+    { title: "Multiplication", note: "", questions: ["5 × 3 = ____","7 × 8 = ____","12 × 6 = ____"]},
+    { title: "Division", note: "", questions: ["20 ÷ 4 = ____","56 ÷ 8 = ____","72 ÷ 9 = ____"]},
+    { title: "Number Patterns", note: "", questions: [
+      "What comes next?  2, 4, 6, 8, ___, ___",
+      "What is the rule?  5, 10, 20, 40, ___  Rule: __________",
+      "What comes next?  1, 4, 9, 16, ___, ___  Rule: __________" ]},
+    { title: "Fractions", note: "", questions: [
+      "Colour **½** of this shape: [box]",
+      "Shade **¾** of this shape: [box]",
+      "Which is larger:  **⅔**  or  **¼** ? ____  How do you know? __________" ]},
+    { title: "Decimals", note: "", questions: [
+      "Write as a decimal:  one half = ____",
+      "Put in order (smallest to largest):  0.5   0.2   0.8  → ___  ___  ___",
+      "0.7 + 0.4 = ____" ]},
+    { title: "Measurement", note: "", questions: [
+      "A book is about 30 ___ long.  Circle:  **mm** / **cm** / **m**",
+      "A pencil is 18 cm long. What is this in mm? ____ mm",
+      "A room is 4 m and 35 cm long. Write this in cm only: ____ cm" ]},
+    { title: "Space (Shapes)", note: "", questions: [
+      "Name this shape: [box] ______  How many sides? ___",
+      "A shape has 4 equal sides and 4 right angles. What is it? ______",
+      "How many lines of symmetry does a square have? ___" ]},
+    { title: "Data & Chance", note: "Favourite colours — Red: 3   Blue: 5   Green: 2", questions: [
+      "Which colour was chosen least? ______",
+      "How many children were asked altogether? ___",
+      "You roll a normal 6-sided die. Is it more likely to land on an even number or on 6? ______" ]},
+    { title: "Money", note: "", questions: [
+      "$5.00 + $3.50 = $ ____",
+      "$10.00 − $6.35 = $ ____",
+      "You buy 3 items at $2.45 each. What is the total? $ ____" ]},
+    { title: "Time", note: "", questions: [
+      "How many minutes in 1 hour? ___",
+      "School starts at 8:50 am. Recess is at 11:00 am. How long is that? ___ h  ___ min",
+      "A movie starts at 2:45 pm and goes for 1 hour 35 minutes. What time does it end? ____" ]},
+    { title: "Visual Perception", note: "", questions: [
+      "Draw the matching half to complete the symmetrical shape: [bigbox]",
+      "Which shape is the odd one out? [box] ____",
+      "Rotate this shape a ¼ turn clockwise. Draw what it looks like. [box] [bigbox]" ]},
+    { title: "Problem Solving", note: "", questions: [
+      "Sam has 12 stickers. He gets 8 more. How many now? ___",
+      "Mia has 3 bags with 6 apples each. She gives away 5. How many left? ___",
+      "A baker makes 48 muffins. He puts them equally into 6 boxes. Then he sells 3 boxes. How many muffins did he sell? ___" ]}
+  ]
+};
+
+let state = load() || deepCopy(PRESET_JEMM);
+
+function deepCopy(o) { return JSON.parse(JSON.stringify(o)); }
+function load() {
+  try { const raw = localStorage.getItem(STORAGE_KEY); return raw ? JSON.parse(raw) : null; }
+  catch (e) { return null; }
+}
+function save() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* private mode etc. */ }
+}
+
+/* ---------------- rendering: worksheet ---------------- */
+function esc(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+/* token pipeline: escape first, then swap tokens for markup */
+function rich(s) {
+  let h = esc(s);
+  h = h.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+  h = h.replace(/\{\{(.+?)\}\}/g, '<span class="qhint">$1</span>');
+  h = h.replace(/\[bigbox\]/g, '<span class="drawbox" style="width:110px;height:56px"></span>');
+  h = h.replace(/\[box\]/g, '<span class="drawbox" style="width:54px;height:36px"></span>');
+  h = h.replace(/\[line\]/g, '<span class="ansline"></span>');
+  h = h.replace(/_{3,}/g, function (m) {
+    const w = Math.min(18 + (m.length - 3) * 10, 220);
+    return '<span class="blank" style="min-width:' + w + 'px"></span>';
+  });
+  return h;
+}
+
+function renderSheet() {
+  const s = state;
+  let h = "";
+  if (s.eyebrow) h += '<p class="eyebrow">' + esc(s.eyebrow) + "</p>";
+  h += '<h2 class="title">' + esc(s.title || "Untitled task") + "</h2>";
+  if (s.youcan) h += '<div class="intent"><b>You can:</b> ' + rich(s.youcan) + "</div>";
+
+  const fields = [];
+  if (s.showName) fields.push('<div class="f grow"><span class="lbl">Name</span><span class="ln"></span></div>');
+  if (s.showDate) fields.push('<div class="f"><span class="lbl">Date</span><span class="ln" style="min-width:80px"></span></div>');
+  if (s.showYear) fields.push('<div class="f"><span class="lbl">Year</span><span class="ln" style="min-width:44px"></span></div>');
+  if (fields.length) h += '<div class="namebar">' + fields.join("") + "</div>";
+
+  if (s.instructions) {
+    h += '<p class="sec-label">How to do this</p><div class="instructions">' + rich(s.instructions) + "</div>";
+  }
+
+  h += '<div class="grid c' + (s.columns === "1" ? "1" : "2") + '">';
+  s.sections.forEach(function (sec, i) {
+    h += '<div class="card"><div class="card-head"><span class="num">' + (i + 1) + '</span><span class="card-title">' + esc(sec.title || "Section " + (i + 1)) + "</span></div>";
+    if (sec.note) h += '<div class="note">' + rich(sec.note) + "</div>";
+    h += '<ol class="q">';
+    sec.questions.forEach(function (q) {
+      if (q.trim() !== "") h += "<li>" + rich(q) + "</li>";
+    });
+    h += "</ol></div>";
+  });
+  h += "</div>";
+
+  if (s.footerTitle) {
+    h += '<p class="footer-note">' + esc(s.footerTitle) + '<span class="footer-line">' + rich(s.footerText || "") + "</span></p>";
+  }
+  document.getElementById("sheet").innerHTML = h;
+}
+
+/* ---------------- rendering: editor ---------------- */
+const headerKeys = ["eyebrow", "title", "youcan", "instructions", "footerTitle", "footerText"];
+function syncHeaderInputs() {
+  headerKeys.forEach(function (k) {
+    const el = document.querySelector('[data-k="' + k + '"]');
+    if (el) el.value = state[k] || "";
+  });
+  document.getElementById("f-name").checked = !!state.showName;
+  document.getElementById("f-date").checked = !!state.showDate;
+  document.getElementById("f-year").checked = !!state.showYear;
+  document.getElementById("f-cols").value = state.columns === "1" ? "1" : "2";
+}
+
+function renderSections() {
+  const host = document.getElementById("sections");
+  host.innerHTML = "";
+  state.sections.forEach(function (sec, i) {
+    const card = document.createElement("div");
+    card.className = "sec-card";
+
+    const head = document.createElement("div");
+    head.className = "sec-head";
+    const n = document.createElement("span");
+    n.className = "n"; n.textContent = i + 1;
+    const t = document.createElement("input");
+    t.type = "text"; t.value = sec.title; t.placeholder = "Section title";
+    t.setAttribute("aria-label", "Section " + (i + 1) + " title");
+    t.addEventListener("input", function () { sec.title = t.value; save(); renderSheet(); });
+    head.appendChild(n); head.appendChild(t);
+    card.appendChild(head);
+
+    const note = document.createElement("input");
+    note.type = "text"; note.value = sec.note || ""; note.placeholder = "Optional note (small grey line under the title)";
+    note.setAttribute("aria-label", "Section " + (i + 1) + " note");
+    note.style.marginBottom = "7px";
+    note.addEventListener("input", function () { sec.note = note.value; save(); renderSheet(); });
+    card.appendChild(note);
+
+    const ta = document.createElement("textarea");
+    ta.value = sec.questions.join("\n");
+    ta.placeholder = "One question per line — use ___ for blanks";
+    ta.setAttribute("aria-label", "Section " + (i + 1) + " questions");
+    ta.rows = Math.max(3, sec.questions.length + 1);
+    ta.addEventListener("input", function () { sec.questions = ta.value.split("\n"); save(); renderSheet(); });
+    card.appendChild(ta);
+
+    const tools = document.createElement("div");
+    tools.className = "sec-tools";
+    tools.appendChild(toolBtn("↑ Up", function () { if (i > 0) { swap(i, i - 1); } }, i === 0));
+    tools.appendChild(toolBtn("↓ Down", function () { if (i < state.sections.length - 1) { swap(i, i + 1); } }, i === state.sections.length - 1));
+    tools.appendChild(toolBtn("Duplicate", function () {
+      state.sections.splice(i + 1, 0, deepCopy(sec)); structural();
+    }, false));
+    tools.appendChild(toolBtn("Delete", function () {
+      state.sections.splice(i, 1); structural();
+    }, false, true));
+    card.appendChild(tools);
+
+    host.appendChild(card);
+  });
+}
+function toolBtn(label, fn, disabled, danger) {
+  const b = document.createElement("button");
+  b.className = "tiny" + (danger ? " danger" : "");
+  b.textContent = label;
+  b.disabled = !!disabled;
+  if (disabled) b.style.opacity = "0.4";
+  b.addEventListener("click", fn);
+  return b;
+}
+function swap(a, b) {
+  const t = state.sections[a]; state.sections[a] = state.sections[b]; state.sections[b] = t;
+  structural();
+}
+function structural() { save(); renderSections(); renderSheet(); }
+
+/* ---------------- header wiring ---------------- */
+headerKeys.forEach(function (k) {
+  const el = document.querySelector('[data-k="' + k + '"]');
+  if (el) el.addEventListener("input", function () { state[k] = el.value; save(); renderSheet(); });
+});
+["f-name", "f-date", "f-year"].forEach(function (id) {
+  const el = document.getElementById(id);
+  el.addEventListener("change", function () { state[el.dataset.k] = el.checked; save(); renderSheet(); });
+});
+document.getElementById("f-cols").addEventListener("change", function (e) {
+  state.columns = e.target.value; save(); renderSheet();
+});
+
+document.getElementById("addSection").addEventListener("click", function () {
+  state.sections.push({ title: "New section", note: "", questions: ["Type a question here — use ___ for a blank"] });
+  structural();
+});
+
+document.getElementById("helpToggle").addEventListener("click", function () {
+  const body = document.getElementById("helpBody");
+  const open = body.hidden;
+  body.hidden = !open;
+  this.setAttribute("aria-expanded", String(open));
+});
+
+/* ---------------- presets ---------------- */
+document.getElementById("presetSelect").addEventListener("change", function (e) {
+  const v = e.target.value;
+  if (!v) return;
+  const map = { blank: BLANK, jemm: PRESET_JEMM, jemmplus: PRESET_JEMMPLUS };
+  if (confirm("Replace the current sheet with this preset? Your current sheet will be overwritten.")) {
+    state = deepCopy(map[v]);
+    save(); syncHeaderInputs(); renderSections(); renderSheet();
+  }
+  e.target.value = "";
+});
+
+/* ---------------- paste-a-task import ---------------- */
+document.getElementById("importBtn").addEventListener("click", function () {
+  const raw = prompt(
+    "Paste your task text below.\n\n" +
+    "Tips: numbered lines like “1. Counting” or ALL-CAPS lines become section titles; every other line becomes a question. " +
+    "Difficulty markers (E / M / H), tick columns and score lines are stripped automatically."
+  );
+  if (!raw) return;
+  const parsed = parseTask(raw);
+  if (!parsed.length) { alert("Nothing usable found in that text — try pasting the plain question lines."); return; }
+  state.sections = parsed;
+  structural();
+});
+
+function parseTask(raw) {
+  const lines = raw.split(/\r?\n/);
+  const sections = [];
+  let current = null;
+  const isHeader = function (l) {
+    return /^\d{1,2}[.)]\s+\S/.test(l) || (/^[A-Z][A-Z\d &()+'\/,’-]{2,40}$/.test(l) && !/[a-z]/.test(l));
+  };
+  const junk = /^(✓\s*\/\s*✗|TOTAL[:\s]|Placement Guide|Record ✓|E\s*=\s*|Students scoring|Students struggling|Use alongside|Class:|Teacher:|STUDENT$)/i;
+  lines.forEach(function (line) {
+    let l = line.trim();
+    if (!l || junk.test(l)) return;
+    if (isHeader(l)) {
+      const title = l.replace(/^\d{1,2}[.)]\s+/, "").trim();
+      current = { title: title, note: "", questions: [] };
+      sections.push(current);
+      return;
+    }
+    /* strip leading difficulty markers: "E ", "M)", "H." etc. */
+    l = l.replace(/^[EMH]\s*[.):]?\s+/, "");
+    /* skip pure field lines from originals */
+    if (/^(Student Name|Date|Year Level)\s*[:_]/i.test(l)) return;
+    if (!current) { current = { title: "Task", note: "", questions: [] }; sections.push(current); }
+    current.questions.push(l);
+  });
+  return sections.filter(function (s) { return s.questions.length > 0; });
+}
+
+/* ---------------- export / import JSON ---------------- */
+document.getElementById("exportBtn").addEventListener("click", function () {
+  const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = (state.title || "task-sheet").replace(/[^\wÀ-￿ -]+/g, "").trim().replace(/\s+/g, "_") + ".json";
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+document.getElementById("importJsonBtn").addEventListener("click", function () {
+  document.getElementById("jsonFile").click();
+});
+document.getElementById("jsonFile").addEventListener("change", function (e) {
+  const f = e.target.files[0];
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = function () {
+    try {
+      const data = JSON.parse(r.result);
+      if (!data || !Array.isArray(data.sections)) throw new Error("bad shape");
+      state = data;
+      save(); syncHeaderInputs(); renderSections(); renderSheet();
+    } catch (err) { alert("That file is not a Task Sheet Builder export."); }
+  };
+  r.readAsText(f);
+  e.target.value = "";
+});
+
+/* ---------------- print ---------------- */
+document.getElementById("printBtn").addEventListener("click", function () { window.print(); });
+
+/* ---------------- boot ---------------- */
+syncHeaderInputs();
+renderSections();
+renderSheet();
+</script>
+
+</body>
+</html>
