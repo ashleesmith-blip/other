@@ -157,6 +157,18 @@ const Pill = ({ children, tone = "plain", style = {} }) => {
   };
   return <span style={{ ...S.pill, ...tones[tone], ...style }}>{children}</span>;
 };
+const GLOBAL_CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap');
+  * { box-sizing: border-box; }
+  button:hover { filter: brightness(0.97); }
+  button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid ${T.blue}; outline-offset: 2px; }
+  input::placeholder, textarea::placeholder { color: ${T.faint}; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+  @media print {
+    .no-print { display: none !important; }
+    body { background: #FFF; }
+  }
+`;
 const Toggle = ({ on, onClick, children }) => (
   <button onClick={onClick} style={{
     ...S.btnGhost, padding: "5px 12px", fontSize: 11.5, display: "inline-flex", alignItems: "center", gap: 6,
@@ -225,9 +237,38 @@ const WEEKTT_PROMPT = `You are reading an existing primary-school aide / educati
 {"assignments":[{"day":"Mon","block":"s1","aide":"Karen M","students":["Archie B"]}]}
 Rules: day = Mon/Tue/Wed/Thu/Fri. block = which part of the six-session day the assignment falls in: s1 (9:00–9:50), s2 (9:50–10:40), s3 (11:10–12:00), s4 (12:00–12:50), s5 (1:40–2:30), s6 (2:30–3:20), or "recess"/"lunch" for break-time support. Map times or period names onto the closest block; split double sessions or full mornings into one entry per block. aide = the staff member's name exactly as written. students = the supported student name(s) in that block (a class code like "3B" is NOT a student — skip entries with no identifiable student). One entry per aide per block per day; include every day you can find.`;
 
+/* ---------- flags, reflections, urgent — quick tags for what's happening ---------- */
+const FLAG_CATS = [
+  { id: "heads-up", label: "Heads up", tone: "blue" },
+  { id: "soft-signs", label: "Soft signs", tone: "amber" },
+  { id: "behaviour", label: "Behavioural", tone: "red" },
+  { id: "medical", label: "Medical", tone: "red" },
+  { id: "positive", label: "Positive", tone: "green" },
+];
+const flagCat = (id) => FLAG_CATS.find((c) => c.id === id) || FLAG_CATS[0];
+const URGENT_REASONS = ["Behavioural escalation", "Medical", "Safety concern", "Soft signs building up", "Other"];
+const RATING = [1, 2, 3, 4, 5];
+const RATING_LABEL = {
+  engagement: ["Withdrawn", "Low", "Some", "Good", "Fully engaged"],
+  regulation: ["Very dysregulated", "Struggling", "Some wobbles", "Mostly settled", "Calm & settled"],
+};
+const fmtWhen = (ts) => {
+  const d = new Date(ts);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const dd = new Date(d); dd.setHours(0, 0, 0, 0);
+  const days = Math.round((today - dd) / 86400000);
+  const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  if (days === 0) return `Today · ${time}`;
+  if (days === 1) return `Yesterday · ${time}`;
+  if (days > 1 && days < 7) return `${days}d ago · ${time}`;
+  return d.toLocaleDateString([], { day: "numeric", month: "short" }) + ` · ${time}`;
+};
+const daysAgo = (n, h = 9) => { const d = new Date(); d.setDate(d.getDate() - n); d.setHours(h, 0, 0, 0); return d.getTime(); };
+
 /* ---------- sample data — a quick way to see the tool working ---------- */
 const SAMPLE = () => {
   const a1 = uid(), a2 = uid(), a3 = uid();
+  const s1 = uid(), s2 = uid(), s3 = uid(), s4 = uid();
   const mk = (days) => Object.fromEntries(DAYS.map((d) => [d, days.includes(d)]));
   const tt = (m, t, w, th, f) => ({ Mon: m, Tue: t, Wed: w, Thu: th, Fri: f });
   return {
@@ -237,10 +278,15 @@ const SAMPLE = () => {
       { id: a3, name: "Jess T", days: mk(["Wed", "Thu", "Fri"]), notes: "" },
     ],
     students: [
-      { id: uid(), name: "Archie B", cls: "1A", year: "1", idealPerDay: 3, fundedHrs: 12, prioritySubjects: ["Reading", "Writing"], preferredAides: [a1], notes: "Visual timetable on desk" },
-      { id: uid(), name: "Billie K", cls: "3B", year: "3", idealPerDay: 2, fundedHrs: 8, prioritySubjects: ["Maths"], preferredAides: [a2, a1], notes: "" },
-      { id: uid(), name: "Cooper D", cls: "5C", year: "5", idealPerDay: 4, fundedHrs: 16, prioritySubjects: ["Writing", "Maths"], preferredAides: [a2], notes: "Needs movement breaks" },
-      { id: uid(), name: "Daisy W", cls: "1A", year: "1", idealPerDay: 2, fundedHrs: null, prioritySubjects: ["Reading"], preferredAides: [a3], notes: "" },
+      { id: s1, name: "Archie B", cls: "1A", year: "1", idealPerDay: 3, fundedHrs: 12, prioritySubjects: ["Reading", "Writing"], preferredAides: [a1], notes: "Visual timetable on desk",
+        strategies: "First/then language. Offer 2 choices max. Visual timetable on desk, cross off as we go.",
+        iepGoals: [{ id: uid(), goal: "Use a 3-word phrase to request a break", note: "Reviewed each term" }, { id: uid(), goal: "Independently follow a 3-step visual sequence", note: "" }] },
+      { id: s2, name: "Billie K", cls: "3B", year: "3", idealPerDay: 2, fundedHrs: 8, prioritySubjects: ["Maths"], preferredAides: [a2, a1], notes: "",
+        strategies: "Chunk instructions into single steps. Check in after 5 minutes of independent work.", iepGoals: [] },
+      { id: s3, name: "Cooper D", cls: "5C", year: "5", idealPerDay: 4, fundedHrs: 16, prioritySubjects: ["Writing", "Maths"], preferredAides: [a2], notes: "Needs movement breaks",
+        strategies: "Movement break every 20 mins. Fidget tool available. Give a 5-minute warning before transitions.",
+        iepGoals: [{ id: uid(), goal: "Remain in learning space for 20-minute stretches", note: "Track with a visual timer" }] },
+      { id: s4, name: "Daisy W", cls: "1A", year: "1", idealPerDay: 2, fundedHrs: null, prioritySubjects: ["Reading"], preferredAides: [a3], notes: "", strategies: "", iepGoals: [] },
     ],
     classes: {
       "1A": { year: "1", tt: tt(
@@ -262,6 +308,23 @@ const SAMPLE = () => {
         ["Writing", "Reading", "Maths", "Applied Maths", "Science", "Inquiry"],
         ["Writing", "Reading", "Maths", "Assembly", "Sport", "Inquiry"]) },
     },
+    notifyGroup: ["Wellbeing Team", "Priya S"],
+    flags: {
+      [s3]: [
+        { id: uid(), ts: daysAgo(6), day: "Wed", by: "Priya S", byRole: "aide", category: "soft-signs", text: "Fidgety and quiet before lunch, settled after a break." },
+        { id: uid(), ts: daysAgo(3), day: "Mon", by: "Karen M", byRole: "aide", category: "positive", text: "Great focus through both writing sessions today." },
+        { id: uid(), ts: daysAgo(1), day: "Thu", by: "Ms Nguyen", byRole: "teacher", category: "heads-up", text: "Assembly change today — may need extra warning before the transition." },
+      ],
+      [s1]: [
+        { id: uid(), ts: daysAgo(4), day: "Fri", by: "Karen M", byRole: "aide", category: "positive", text: "Used his visual timetable independently all morning." },
+      ],
+    },
+    reflections: [
+      { id: uid(), ts: daysAgo(6, 10), day: "Wed", block: "s3", aideId: a2, studentId: s3, engagement: 2, regulation: 2, note: "Struggled to settle after recess, needed a movement break." },
+      { id: uid(), ts: daysAgo(4, 9), day: "Mon", block: "s1", aideId: a2, studentId: s3, engagement: 4, regulation: 4, note: "Strong start, engaged with writing task." },
+      { id: uid(), ts: daysAgo(2, 11), day: "Wed", block: "s3", aideId: a2, studentId: s3, engagement: 4, regulation: 3, note: "" },
+      { id: uid(), ts: daysAgo(3, 9), day: "Mon", block: "s1", aideId: a1, studentId: s1, engagement: 5, regulation: 5, note: "Confident using his visual timetable unprompted." },
+    ],
   };
 };
 
@@ -276,16 +339,49 @@ export default function App() {
   const [yardAreas, setYardAreas] = useState(DEFAULT_AREAS);
   const [extraStaff, setExtraStaff] = useState([]); // teachers etc. in the yard-duty pool
   const [dayOv, setDayOv] = useState({});          // { day: { absentS:[], absentA:[], cells:{`${blockId}|${aideId}`:[ids]}, note } }
+  const [adminPass, setAdminPass] = useState("");  // "" = not set yet — first Admin login sets it
+  const [notifyGroup, setNotifyGroup] = useState(["Wellbeing Team"]); // who the (simulated) urgent alert names
+  const [flags, setFlags] = useState({});          // { studentId: [{id, ts, day, by, byRole, category, text}] }
+  const [reflections, setReflections] = useState([]); // [{id, ts, day, block, aideId, studentId, engagement, regulation, note}]
+  const [activity, setActivity] = useState([]);    // [{id, ts, by, byRole, kind, studentId, text}] — for unread badges
+  const [lastSeen, setLastSeen] = useState({});    // { "aide:<id>"|"teacher:<cls>": ts }
+
+  /* ---------- session — who's logged in; separate from the shared doc ---------- */
+  const [role, setRole] = useState(null);          // null | "admin" | "aide" | "teacher"
+  const [roleId, setRoleId] = useState(null);      // aide id, or class name, for aide/teacher
+  const [roleName, setRoleName] = useState("");    // display name for activity/flag authorship
+  const [loginErr, setLoginErr] = useState("");
+  const [passInput, setPassInput] = useState("");
+  const [passConfirm, setPassConfirm] = useState("");
+  const sessionLoaded = useRef(false);
 
   /* ui */
-  const [view, setView] = useState("team");        // team | classes | week | today | yard | hours | import
-  const [day, setDay] = useState("Mon");           // week + today + yard selected day
+  const [view, setView] = useState("team");        // team | classes | week | today | yard | hours | insights | import | settings
+  const [day, setDay] = useState("Mon");           // week + today + yard selected day — also stands in for "today"
   const [wholeWeek, setWholeWeek] = useState(false);
   const [editCell, setEditCell] = useState(null);  // { day, blockId, aideId, mode:"base"|"today" }
   const [editAide, setEditAide] = useState(null);  // aide id being edited
   const [editStudent, setEditStudent] = useState(null);
   const [clsOpen, setClsOpen] = useState(null);    // class name expanded in Classes view
   const [savedMsg, setSavedMsg] = useState("");
+  const [profileId, setProfileId] = useState(null);   // student id — profile/quick-panel modal
+  const [flagFor, setFlagFor] = useState(null);        // student id, or "pick" — add-flag modal
+  const [flagCatSel, setFlagCatSel] = useState("heads-up");
+  const [flagText, setFlagText] = useState("");
+  const [reflectFor, setReflectFor] = useState(null);  // { day, block, aideId, studentId } — reflection modal
+  const [reflectEng, setReflectEng] = useState(0);
+  const [reflectReg, setReflectReg] = useState(0);
+  const [reflectNote, setReflectNote] = useState("");
+  const [urgentOpen, setUrgentOpen] = useState(false);
+  const [urgentStudent, setUrgentStudent] = useState(null);
+  const [urgentReason, setUrgentReason] = useState(URGENT_REASONS[0]);
+  const [urgentNote, setUrgentNote] = useState("");
+  const [urgentSent, setUrgentSent] = useState(false);
+  const [bellOpen, setBellOpen] = useState(false);
+  const [newGoal, setNewGoal] = useState("");
+  const [newStaffName, setNewStaffName] = useState("");
+  const [passNew, setPassNew] = useState("");
+  const [passNew2, setPassNew2] = useState("");
 
   /* import */
   const [impMode, setImpMode] = useState("preinfo"); // preinfo | classtt
@@ -312,19 +408,45 @@ export default function App() {
           if (d.yardAreas) setYardAreas(d.yardAreas);
           if (d.extraStaff) setExtraStaff(d.extraStaff);
           if (d.dayOv) setDayOv(d.dayOv);
+          if (d.adminPass != null) setAdminPass(d.adminPass);
+          if (d.notifyGroup) setNotifyGroup(d.notifyGroup);
+          if (d.flags) setFlags(d.flags);
+          if (d.reflections) setReflections(d.reflections);
+          if (d.activity) setActivity(d.activity);
+          if (d.lastSeen) setLastSeen(d.lastSeen);
         }
       } catch {}
       storeLoaded.current = true;
     })();
+    (async () => {
+      try {
+        const raw = await store.get("aide-tt-session");
+        if (raw) {
+          const s = JSON.parse(raw);
+          if (s.role) setRole(s.role);
+          if (s.roleId !== undefined) setRoleId(s.roleId);
+          if (s.roleName) setRoleName(s.roleName);
+          if (s.role === "admin") setView("team");
+          else if (s.role === "aide") setView("aide-home");
+          else if (s.role === "teacher") setView("teacher-home");
+        }
+      } catch {}
+      sessionLoaded.current = true;
+    })();
   }, []);
   useEffect(() => {
     if (!storeLoaded.current) return;
-    const doc = JSON.stringify({ aides, students, classes, plan, yard, yardAreas, extraStaff, dayOv });
+    const doc = JSON.stringify({ aides, students, classes, plan, yard, yardAreas, extraStaff, dayOv, adminPass, notifyGroup, flags, reflections, activity, lastSeen });
     store.set("aide-tt-doc", doc);
     setSavedMsg("Saved");
     const t = setTimeout(() => setSavedMsg(""), 1200);
     return () => clearTimeout(t);
-  }, [aides, students, classes, plan, yard, yardAreas, extraStaff, dayOv]);
+  }, [aides, students, classes, plan, yard, yardAreas, extraStaff, dayOv, adminPass, notifyGroup, flags, reflections, activity, lastSeen]);
+  useEffect(() => {
+    if (!sessionLoaded.current) return;
+    store.set("aide-tt-session", JSON.stringify({ role, roleId, roleName }));
+  }, [role, roleId, roleName]);
+  const logOut = () => { setRole(null); setRoleId(null); setRoleName(""); setView("team"); setPassInput(""); setLoginErr(""); };
 
   /* ---------- lookups ---------- */
   const aideById = (id) => aides.find((a) => a.id === id);
@@ -457,7 +579,7 @@ export default function App() {
   const patchAide = (id, patch) => setAides((xs) => xs.map((a) => (a.id === id ? { ...a, ...patch } : a)));
   const patchStudent = (id, patch) => setStudents((xs) => xs.map((s) => (s.id === id ? { ...s, ...patch } : s)));
   const addAide = () => { const a = { id: uid(), name: "", days: Object.fromEntries(DAYS.map((d) => [d, true])), notes: "" }; setAides((xs) => [...xs, a]); setEditAide(a.id); };
-  const addStudent = () => { const s = { id: uid(), name: "", cls: "", year: "", idealPerDay: 2, fundedHrs: null, prioritySubjects: [], preferredAides: [], notes: "" }; setStudents((xs) => [...xs, s]); setEditStudent(s.id); };
+  const addStudent = () => { const s = { id: uid(), name: "", cls: "", year: "", idealPerDay: 2, fundedHrs: null, prioritySubjects: [], preferredAides: [], notes: "", strategies: "", iepGoals: [] }; setStudents((xs) => [...xs, s]); setEditStudent(s.id); };
   const removeAide = (id) => {
     if (!window.confirm("Remove this aide and all their assignments?")) return;
     setAides((xs) => xs.filter((a) => a.id !== id));
@@ -479,6 +601,10 @@ export default function App() {
         if (JSON.stringify(ids) === JSON.stringify(base)) delete cells[k]; else cells[k] = ids;
         return { ...m, [dy]: { ...ov, cells } };
       });
+      const b = BLOCKS.find((x) => x.id === blockId);
+      const a = aideById(aideId);
+      const names = ids.map((sid) => studentById(sid)?.name).filter(Boolean).join(", ") || "no one";
+      pushActivity(`Timetable change · ${DAY_LABEL[dy]} ${b?.label || blockId}: ${a?.name || "aide"} → ${names}`, "change", ids[0] || null, aideId);
     } else {
       setPlan((p) => {
         const k = cellKey(dy, blockId, aideId);
@@ -488,12 +614,17 @@ export default function App() {
       });
     }
   };
-  const toggleAbsent = (dy, kind, id) => setDayOv((m) => {
-    const ov = { absentS: [], absentA: [], cells: {}, note: "", ...(m[dy] || {}) };
+  const toggleAbsent = (dy, kind, id) => {
     const key = kind === "s" ? "absentS" : "absentA";
-    const list = ov[key].includes(id) ? ov[key].filter((x) => x !== id) : [...ov[key], id];
-    return { ...m, [dy]: { ...ov, [key]: list } };
-  });
+    const nowAbsent = !ovFor(dy)[key].includes(id);
+    setDayOv((m) => {
+      const ov = { absentS: [], absentA: [], cells: {}, note: "", ...(m[dy] || {}) };
+      const list = nowAbsent ? [...new Set([...ov[key], id])] : ov[key].filter((x) => x !== id);
+      return { ...m, [dy]: { ...ov, [key]: list } };
+    });
+    const name = kind === "s" ? studentById(id)?.name : aideById(id)?.name;
+    if (name) pushActivity(`${name} marked ${nowAbsent ? "absent" : "back in"} · ${DAY_LABEL[dy]}`, "change", kind === "s" ? id : null, kind === "a" ? id : null);
+  };
   const resetDay = (dy) => {
     if (!window.confirm(`Clear all of ${DAY_LABEL[dy]}'s changes and go back to the base week?`)) return;
     setDayOv((m) => { const n = { ...m }; delete n[dy]; return n; });
@@ -524,9 +655,68 @@ export default function App() {
   };
   const aideYardCount = (name) => Object.values(yard).filter((v) => v === name).length;
 
+  /* ---------- who's logged in, what they can see ---------- */
+  const whoAmI = () => (role === "admin" ? "Admin" : role === "aide" ? (aideById(roleId)?.name || "Aide") : role === "teacher" ? `${roleId} teacher` : "");
+  const aideStudentIds = (aideId) => [...new Set(Object.entries(plan).filter(([k, v]) => k.endsWith(`|${aideId}`) && v.length).flatMap(([, v]) => v))];
+  const teacherStudentIds = (cls) => students.filter((s) => s.cls === cls).map((s) => s.id);
+  const myStudentIds = () => (role === "aide" ? aideStudentIds(roleId) : role === "teacher" ? teacherStudentIds(roleId) : students.map((s) => s.id));
+  const sessionKey = () => (role === "aide" ? `aide:${roleId}` : role === "teacher" ? `teacher:${roleId}` : null);
+  const relevantActivity = () => {
+    if (role === "admin") return activity;
+    const ids = myStudentIds();
+    return activity.filter((a) => a.kind === "urgent" || (a.studentId != null && ids.includes(a.studentId)) || (role === "aide" && a.aideId === roleId));
+  };
+  const unreadActivity = () => {
+    const key = sessionKey();
+    const since = key ? lastSeen[key] || 0 : 0;
+    return relevantActivity().filter((a) => a.ts > since && a.byRole !== role); // your own posts aren't news to you
+  };
+  const markSeen = () => {
+    const key = sessionKey();
+    if (key) setLastSeen((m) => ({ ...m, [key]: Date.now() }));
+  };
+
+  /* ---------- flags, reflections, activity — the day-to-day layer everyone shares ---------- */
+  const pushActivity = (text, kind, studentId = null, aideId = null) =>
+    setActivity((xs) => [{ id: uid(), ts: Date.now(), by: whoAmI(), byRole: role, kind, studentId, aideId, text }, ...xs].slice(0, 300));
+  const flagsFor = (studentId) => flags[studentId] || [];
+  const addFlag = (studentId, category, text) => {
+    const entry = { id: uid(), ts: Date.now(), day, by: whoAmI(), byRole: role, category, text: text.trim() };
+    setFlags((m) => ({ ...m, [studentId]: [entry, ...(m[studentId] || [])] }));
+    const st = studentById(studentId);
+    pushActivity(`${flagCat(category).label} — ${st?.name || "a student"}: ${text.trim()}`, "flag", studentId);
+  };
+  const addReflection = (r) => {
+    setReflections((xs) => [{ id: uid(), ts: Date.now(), ...r }, ...xs]);
+    const st = studentById(r.studentId);
+    pushActivity(`Reflection · ${st?.name || "student"} — engagement ${r.engagement}/5, regulation ${r.regulation}/5${r.note ? `: ${r.note}` : ""}`, "reflection", r.studentId, r.aideId);
+  };
+  const weekStartTs = () => { const d = new Date(); const dow = (d.getDay() + 6) % 7; d.setDate(d.getDate() - dow); d.setHours(0, 0, 0, 0); return d.getTime(); };
+  const reflectionDone = (dy, blockId, aideId, studentId) =>
+    reflections.some((r) => r.day === dy && r.block === blockId && r.aideId === aideId && r.studentId === studentId && r.ts >= weekStartTs());
+
+  /* ---------- login ---------- */
+  const loginAdmin = () => {
+    if (!adminPass) {
+      if (passInput.length < 4) { setLoginErr("Passcode needs at least 4 characters."); return; }
+      if (passInput !== passConfirm) { setLoginErr("Passcodes don't match."); return; }
+      setAdminPass(passInput);
+    } else if (passInput !== adminPass) { setLoginErr("Wrong passcode."); return; }
+    setRole("admin"); setRoleId(null); setRoleName("Admin"); setView("team");
+    setPassInput(""); setPassConfirm(""); setLoginErr("");
+  };
+  const loginAide = (a) => { setRole("aide"); setRoleId(a.id); setRoleName(a.name); setView("aide-home"); setLoginErr(""); };
+  const loginTeacher = (cls) => { setRole("teacher"); setRoleId(cls); setRoleName(`${cls} teacher`); setView("teacher-home"); setLoginErr(""); };
+  const sendUrgent = (studentId, reason, note) => {
+    const st = studentId ? studentById(studentId) : null;
+    const text = `URGENT — ${reason}${st ? ` · ${st.name}` : ""}${note ? `: ${note}` : ""}`;
+    pushActivity(text, "urgent", studentId);
+    if (studentId) addFlag(studentId, reason === "Soft signs building up" ? "soft-signs" : "behaviour", `[Urgent request] ${note || reason}`);
+  };
+
   /* ---------- backup — belt-and-braces when browser storage isn't available ---------- */
   const exportData = () => {
-    const doc = JSON.stringify({ aides, students, classes, plan, yard, yardAreas, extraStaff, dayOv }, null, 2);
+    const doc = JSON.stringify({ aides, students, classes, plan, yard, yardAreas, extraStaff, dayOv, adminPass, notifyGroup, flags, reflections, activity, lastSeen }, null, 2);
     const blob = new Blob([doc], { type: "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -542,7 +732,15 @@ export default function App() {
       setAides(d.aides || []); setStudents(d.students || []); setClasses(d.classes || {});
       setPlan(d.plan || {}); setYard(d.yard || {}); setYardAreas(d.yardAreas || DEFAULT_AREAS);
       setExtraStaff(d.extraStaff || []); setDayOv(d.dayOv || {});
+      setAdminPass(d.adminPass || ""); setNotifyGroup(d.notifyGroup || ["Wellbeing Team"]);
+      setFlags(d.flags || {}); setReflections(d.reflections || []);
+      setActivity(d.activity || []); setLastSeen(d.lastSeen || {});
     } catch { window.alert("That file isn't a valid backup."); }
+  };
+  const loadSample = () => {
+    const s = SAMPLE();
+    setAides(s.aides); setStudents(s.students); setClasses(s.classes);
+    setNotifyGroup(s.notifyGroup); setFlags(s.flags); setReflections(s.reflections);
   };
 
   /* ---------- import ---------- */
@@ -800,52 +998,203 @@ export default function App() {
     );
   };
 
+  /* ============================ LOGIN GATE ============================ */
+  if (!role) return (
+    <div style={{ minHeight: "100vh", background: T.bg, fontFamily: F.body, color: T.ink }}>
+      <style>{GLOBAL_CSS}</style>
+      <div style={{ maxWidth: 980, margin: "0 auto", padding: "56px 22px 60px", textAlign: "center" }}>
+        <Pill tone="blue" style={{ fontSize: 11 }}>CPS · Learning Support</Pill>
+        <h1 style={{ fontFamily: F.display, fontWeight: 800, fontSize: 34, letterSpacing: "-0.02em", margin: "12px 0 6px" }}>
+          Aide <span style={{ color: T.blue }}>Timetable</span>
+        </h1>
+        <div style={{ fontSize: 14, color: T.sub, maxWidth: 560, margin: "0 auto 8px", lineHeight: 1.55 }}>
+          Sign in to your view. Admin plans the week; aides and teachers see their day as it actually stands.
+        </div>
+        <Pill tone="amber" style={{ fontSize: 10.5, marginBottom: 26 }}>Prototype — single-browser demo · notifications simulated · no real student data</Pill>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 18, textAlign: "left", marginTop: 22 }}>
+          {/* admin */}
+          <div style={{ ...S.card, padding: 20 }}>
+            <span style={S.eyebrow}>Admin</span>
+            <div style={{ fontFamily: F.display, fontWeight: 800, fontSize: 17, margin: "8px 0 4px" }}>Plan &amp; run the week</div>
+            <div style={{ fontSize: 12.5, color: T.sub, lineHeight: 1.5, marginBottom: 12 }}>
+              Timetables, yard duty, hours, insights and settings.{!adminPass && " No passcode set yet — create one now."}
+            </div>
+            <label style={S.label}>{adminPass ? "Passcode" : "Create a passcode"}</label>
+            <input style={S.input} type="password" value={passInput} onChange={(e) => setPassInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && (adminPass ? loginAdmin() : null)} placeholder={adminPass ? "••••••" : "At least 4 characters"} />
+            {!adminPass && (
+              <div style={{ marginTop: 8 }}>
+                <label style={S.label}>Confirm passcode</label>
+                <input style={S.input} type="password" value={passConfirm} onChange={(e) => setPassConfirm(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && loginAdmin()} placeholder="Same again" />
+              </div>
+            )}
+            <button style={{ ...S.btn, marginTop: 12, width: "100%" }} onClick={loginAdmin}>{adminPass ? "Unlock admin" : "Set passcode & enter"}</button>
+            {loginErr && <div style={{ marginTop: 8 }}><Pill tone="red" style={{ fontSize: 11 }}>{loginErr}</Pill></div>}
+          </div>
+
+          {/* aide */}
+          <div style={{ ...S.card, padding: 20 }}>
+            <span style={S.eyebrow}>Aide</span>
+            <div style={{ fontFamily: F.display, fontWeight: 800, fontSize: 17, margin: "8px 0 4px" }}>My day at a glance</div>
+            <div style={{ fontSize: 12.5, color: T.sub, lineHeight: 1.5, marginBottom: 12 }}>
+              Your sessions, your students, today's changes — plus quick updates and reflections.
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {aides.map((a, ai) => {
+                const col = aideColor(ai);
+                return (
+                  <button key={a.id} onClick={() => loginAide(a)}
+                    style={{ ...S.btnGhost, display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", borderRadius: 12 }}>
+                    <span style={{ width: 22, height: 22, borderRadius: 999, background: col.main, color: col.on, fontSize: 9.5, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{initials(a.name)}</span>
+                    {a.name || "Unnamed aide"}
+                  </button>
+                );
+              })}
+              {!aides.length && <span style={{ fontSize: 12.5, color: T.faint }}>No aides set up yet — admin adds the team first.</span>}
+            </div>
+          </div>
+
+          {/* teacher */}
+          <div style={{ ...S.card, padding: 20 }}>
+            <span style={S.eyebrow}>Teacher</span>
+            <div style={{ fontFamily: F.display, fontWeight: 800, fontSize: 17, margin: "8px 0 4px" }}>My class's support</div>
+            <div style={{ fontSize: 12.5, color: T.sub, lineHeight: 1.5, marginBottom: 12 }}>
+              Which of your students have aide support today, with whom, and any updates.
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {Object.keys(classes).sort().map((cls) => (
+                <button key={cls} onClick={() => loginTeacher(cls)}
+                  style={{ ...S.btnGhost, width: "100%", textAlign: "left", borderRadius: 12 }}>
+                  {cls}{classes[cls]?.year ? ` · Year ${classes[cls].year}` : ""}
+                  <span style={{ color: T.faint, fontWeight: 500, marginLeft: 6, fontSize: 11.5 }}>
+                    {students.filter((s) => s.cls === cls).length} supported
+                  </span>
+                </button>
+              ))}
+              {!Object.keys(classes).length && <span style={{ fontSize: 12.5, color: T.faint }}>No classes set up yet — admin adds them first.</span>}
+            </div>
+          </div>
+        </div>
+
+        {!aides.length && (
+          <div style={{ marginTop: 22, fontSize: 13, color: T.sub }}>
+            First time here?{" "}
+            <button onClick={loadSample} style={{ border: "none", background: "none", cursor: "pointer", color: T.blueDeep, fontWeight: 700, fontSize: 13, padding: 0 }}>
+              Load sample data
+            </button>{" "}
+            to explore every view.
+          </div>
+        )}
+        <div style={{ marginTop: 30, fontSize: 11.5, color: T.faint, lineHeight: 1.7, maxWidth: 640, marginLeft: "auto", marginRight: "auto" }}>
+          Closed prototype: everything stays in this browser — nothing is sent anywhere. Use first names and an initial only;
+          never surnames, dates of birth or photos. A real multi-user rollout needs a school-approved, Australian-hosted service.
+        </div>
+      </div>
+    </div>
+  );
+
   /* ============================ UI ============================ */
   return (
     <div style={{ minHeight: "100vh", background: T.bg, fontFamily: F.body, color: T.ink }}>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap');
-        * { box-sizing: border-box; }
-        button:hover { filter: brightness(0.97); }
-        button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid ${T.blue}; outline-offset: 2px; }
-        input::placeholder, textarea::placeholder { color: ${T.faint}; }
-        @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
-        @media print {
-          .no-print { display: none !important; }
-          body { background: #FFF; }
-        }
-      `}</style>
+      <style>{GLOBAL_CSS}</style>
 
       {/* ---------- header ---------- */}
       <div style={{ background: T.card, borderBottom: `1px solid ${T.line}` }}>
         <div style={{ maxWidth: 1180, margin: "0 auto", padding: "26px 22px 22px", textAlign: "center" }}>
-          <Pill tone="blue" style={{ fontSize: 11 }}>CPS · Learning Support</Pill>
+          <Pill tone="blue" style={{ fontSize: 11 }}>CPS · Learning Support · {whoAmI()}</Pill>
           <h1 style={{ fontFamily: F.display, fontWeight: 800, fontSize: 34, letterSpacing: "-0.02em", margin: "12px 0 6px" }}>
             Aide <span style={{ color: T.blue }}>Timetable</span>
           </h1>
           <div style={{ fontSize: 14, color: T.sub, maxWidth: 620, margin: "0 auto", lineHeight: 1.55 }}>
-            The team, the students, the week. Suggest a timetable, tune it cell by cell, roster the yard —
-            then run the day as it actually happens.
+            {role === "admin"
+              ? "The team, the students, the week. Suggest a timetable, tune it cell by cell, roster the yard — then run the day as it actually happens."
+              : role === "aide"
+              ? "Your day at a glance — knowing it may change. The bell flags anything new."
+              : "Your class's aide support today — who, when, and anything worth knowing."}
           </div>
-          <div className="no-print" style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 16, flexWrap: "wrap" }}>
-            {[["team", "Team"], ["classes", "Classes"], ["week", "Week"], ["today", "Today"], ["yard", "Yard duty"], ["hours", "Hours"], ["import", "Import"]].map(([k, lab]) => (
+          <div className="no-print" style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 16, flexWrap: "wrap", alignItems: "center" }}>
+            {(role === "admin"
+              ? [["team", "Team"], ["classes", "Classes"], ["week", "Week"], ["today", "Today"], ["yard", "Yard duty"], ["hours", "Hours"], ["insights", "Insights"], ["import", "Import"], ["settings", "Settings"]]
+              : role === "aide"
+              ? [["aide-home", "My day"], ["aide-week", "My week"]]
+              : [["teacher-home", "My class"]]
+            ).map(([k, lab]) => (
               <button key={k} onClick={() => setView(k)}
                 style={{ ...S.btnGhost, ...(view === k ? { background: T.ink, color: "#FFF", borderColor: T.ink } : {}) }}>
                 {lab}
               </button>
             ))}
-            <button style={{ ...S.btnGhost, padding: "5px 12px", fontSize: 11, color: T.sub }} onClick={exportData} title="Download everything as a JSON backup">Backup</button>
-            <button style={{ ...S.btnGhost, padding: "5px 12px", fontSize: 11, color: T.sub }} onClick={() => loadRef.current?.click()} title="Restore from a JSON backup">Restore</button>
-            <input ref={loadRef} type="file" hidden accept=".json,application/json" onChange={(e) => { loadData(e.target.files?.[0]); e.target.value = ""; }} />
+            {/* bell */}
+            <button onClick={() => { if (bellOpen) markSeen(); setBellOpen(!bellOpen); }}
+              title="Changes & updates"
+              style={{ ...S.btnGhost, position: "relative", padding: "8px 14px" }}>
+              🔔
+              {unreadActivity().length > 0 && (
+                <span style={{ position: "absolute", top: -4, right: -4, minWidth: 17, height: 17, borderRadius: 999, background: "#DC2626", color: "#FFF", fontSize: 10, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }}>
+                  {unreadActivity().length}
+                </span>
+              )}
+            </button>
+            <button onClick={() => { setUrgentOpen(true); setUrgentSent(false); setUrgentStudent(null); setUrgentReason(URGENT_REASONS[0]); setUrgentNote(""); }}
+              style={{ ...S.btn, background: "#DC2626", boxShadow: "0 1px 2px rgba(220,38,38,.35), 0 6px 16px rgba(220,38,38,.25)", padding: "8px 16px" }}>
+              ⚠ Urgent
+            </button>
+            {role === "admin" && (
+              <>
+                <button style={{ ...S.btnGhost, padding: "5px 12px", fontSize: 11, color: T.sub }} onClick={exportData} title="Download everything as a JSON backup">Backup</button>
+                <button style={{ ...S.btnGhost, padding: "5px 12px", fontSize: 11, color: T.sub }} onClick={() => loadRef.current?.click()} title="Restore from a JSON backup">Restore</button>
+                <input ref={loadRef} type="file" hidden accept=".json,application/json" onChange={(e) => { loadData(e.target.files?.[0]); e.target.value = ""; }} />
+              </>
+            )}
+            <button style={{ ...S.btnGhost, padding: "5px 12px", fontSize: 11, color: T.sub }} onClick={logOut}>Log out</button>
             {savedMsg && <Pill tone="green" style={{ fontSize: 10.5 }}>{savedMsg}</Pill>}
           </div>
         </div>
       </div>
+      <div className="no-print" style={{ background: T.amberSoft, borderBottom: `1px solid ${T.amberLine}`, textAlign: "center", padding: "6px 14px", fontSize: 11.5, color: T.amber, fontWeight: 600 }}>
+        Prototype demo — single browser, simulated notifications, first names only, no real student data.
+      </div>
+
+      {/* ---------- bell panel ---------- */}
+      {bellOpen && (() => {
+        const key = sessionKey();
+        const since = key ? lastSeen[key] || 0 : 0;
+        const items = relevantActivity().slice(0, 30);
+        return (
+          <div style={{ position: "fixed", top: 74, right: 18, width: 380, maxWidth: "calc(100vw - 36px)", maxHeight: "62vh", overflowY: "auto", zIndex: 60, ...S.card, boxShadow: T.shadowLift, padding: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
+              <span style={S.eyebrow}>Changes & updates</span>
+              <span style={{ flex: 1 }} />
+              <button style={{ ...S.btnGhost, padding: "2px 9px", fontSize: 11 }} onClick={() => { markSeen(); setBellOpen(false); }}>✕</button>
+            </div>
+            {!items.length && <div style={{ fontSize: 12.5, color: T.faint, padding: "10px 0" }}>Nothing yet — timetable changes, updates and alerts land here.</div>}
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {items.map((a) => {
+                const fresh = a.ts > since && a.byRole !== role;
+                const tone = a.kind === "urgent" ? T.redSoft : a.kind === "flag" ? T.amberSoft : "#FAFBFD";
+                const line = a.kind === "urgent" ? T.redLine : a.kind === "flag" ? T.amberLine : T.lineSoft;
+                return (
+                  <div key={a.id} style={{ borderRadius: 10, border: `1px solid ${line}`, background: tone, padding: "8px 10px" }}>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 10.5, color: T.faint, fontWeight: 600 }}>
+                      {fresh && <span style={{ width: 7, height: 7, borderRadius: 999, background: T.blue, flex: "0 0 auto" }} />}
+                      {a.by} · {fmtWhen(a.ts)}
+                      {a.kind === "urgent" && <Pill tone="red" style={{ padding: "0 8px", fontSize: 9 }}>URGENT</Pill>}
+                    </div>
+                    <div style={{ fontSize: 12.5, marginTop: 2, lineHeight: 1.45 }}>{a.text}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       <div style={{ maxWidth: 1180, margin: "0 auto", padding: "26px 22px 80px" }}>
 
         {/* ================= TEAM ================= */}
-        {view === "team" && (
+        {role === "admin" && view === "team" && (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 22, alignItems: "start" }}>
             {/* aides */}
             <div style={S.card}>
@@ -857,7 +1206,7 @@ export default function App() {
               {!aides.length && (
                 <div style={{ fontSize: 13, color: T.sub, lineHeight: 1.6 }}>
                   No aides yet. Add your team, or{" "}
-                  <button onClick={() => { const s = SAMPLE(); setAides(s.aides); setStudents(s.students); setClasses(s.classes); }}
+                  <button onClick={loadSample}
                     style={{ border: "none", background: "none", cursor: "pointer", color: T.blueDeep, fontWeight: 700, fontSize: 13, padding: 0 }}>
                     load sample data
                   </button>{" "}
@@ -940,6 +1289,7 @@ export default function App() {
                             {(st.prioritySubjects || []).length > 0 && ` · priority: ${st.prioritySubjects.join(", ")}`}
                           </div>
                         </div>
+                        <button style={{ ...S.btnGhost, padding: "3px 10px", fontSize: 11 }} onClick={() => setProfileId(st.id)}>Profile</button>
                         <button style={{ ...S.btnGhost, padding: "3px 10px", fontSize: 11 }} onClick={() => setEditStudent(open ? null : st.id)}>{open ? "Done" : "Edit"}</button>
                         <button style={{ ...S.btnGhost, padding: "3px 8px", fontSize: 11, color: T.red, borderColor: T.redLine }} onClick={() => removeStudent(st.id)}>✕</button>
                       </div>
@@ -1041,7 +1391,7 @@ export default function App() {
         )}
 
         {/* ================= CLASSES ================= */}
-        {view === "classes" && (
+        {role === "admin" && view === "classes" && (
           <div style={{ ...S.card, padding: 22 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
               <span style={S.eyebrow}>Year-level class timetables</span>
@@ -1124,7 +1474,7 @@ export default function App() {
         )}
 
         {/* ================= WEEK ================= */}
-        {view === "week" && (
+        {role === "admin" && view === "week" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             <div className="no-print" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               {!wholeWeek && <DayPills value={day} onChange={setDay} />}
@@ -1161,7 +1511,7 @@ export default function App() {
         )}
 
         {/* ================= TODAY ================= */}
-        {view === "today" && (
+        {role === "admin" && view === "today" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }} className="no-print">
               <DayPills value={day} onChange={setDay} />
@@ -1218,7 +1568,7 @@ export default function App() {
         )}
 
         {/* ================= YARD DUTY ================= */}
-        {view === "yard" && (
+        {role === "admin" && view === "yard" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }} className="no-print">
               {!wholeWeek && <DayPills value={day} onChange={setDay} />}
@@ -1323,7 +1673,7 @@ export default function App() {
         )}
 
         {/* ================= HOURS ================= */}
-        {view === "hours" && (
+        {role === "admin" && view === "hours" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
             <div style={{ ...S.card, padding: 22 }}>
               <span style={S.eyebrow}>Support hours per student</span>
@@ -1393,7 +1743,7 @@ export default function App() {
         )}
 
         {/* ================= IMPORT ================= */}
-        {view === "import" && (
+        {role === "admin" && view === "import" && (
           <div style={{ ...S.card, padding: 22 }}>
             <div style={{ display: "flex", gap: 8, marginBottom: 16, alignItems: "center", flexWrap: "wrap" }}>
               {[["preinfo", "Pre-information — aides & students"], ["classtt", "Year-level class timetables"], ["weektt", "Current aide timetable"]].map(([k, lab]) => (
@@ -1479,6 +1829,351 @@ export default function App() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* ================= AIDE — MY DAY ================= */}
+        {view === "aide-home" && role === "aide" && (() => {
+          const me = aideById(roleId);
+          const ov = ovFor(day);
+          const meAbsent = ov.absentA.includes(roleId);
+          const working = !!me?.days?.[day];
+          const myIds = aideStudentIds(roleId);
+          const recentNotes = myIds.flatMap((sid) => flagsFor(sid).map((f) => ({ ...f, sid })))
+            .filter((f) => f.ts > Date.now() - 3 * 86400000).sort((a, b) => b.ts - a.ts).slice(0, 6);
+          const changedCount = Object.keys(ov.cells || {}).filter((k) => k.endsWith(`|${roleId}`)).length;
+          return (
+            <div style={{ display: "flex", flexDirection: "column", gap: 14, maxWidth: 760, margin: "0 auto" }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <DayPills value={day} onChange={setDay} />
+              </div>
+              {changedCount > 0 && (
+                <div style={{ borderRadius: 12, border: `1px solid ${T.amberLine}`, background: T.amberSoft, padding: "10px 14px", fontSize: 12.5, color: T.amber, fontWeight: 600 }}>
+                  ⚠ {changedCount} of your {DAY_LABEL[day]} sessions {changedCount === 1 ? "has" : "have"} changed from the base week — changed cells wear an amber dot.
+                </div>
+              )}
+              {ov.note && (
+                <div style={{ borderRadius: 12, border: `1px solid ${T.blueLine}`, background: T.blueSoft, padding: "10px 14px", fontSize: 12.5, color: T.blueDeep }}>
+                  📌 {ov.note}
+                </div>
+              )}
+              {meAbsent && <div style={{ borderRadius: 12, border: `1px solid ${T.redLine}`, background: T.redSoft, padding: "10px 14px", fontSize: 12.5, color: T.red, fontWeight: 700 }}>You're marked absent {DAY_LABEL[day]} — your sessions are being covered.</div>}
+              {!working && !meAbsent && <div style={{ ...S.card, textAlign: "center", color: T.sub, fontSize: 13.5 }}>You don't work {DAY_LABEL[day]}s — enjoy the day off.</div>}
+              {working && !meAbsent && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {BLOCKS.map((b) => {
+                    const ids = effPairs(day, b.id, roleId);
+                    const changed = ov.cells && ov.cells[`${b.id}|${roleId}`] !== undefined;
+                    const duty = b.kind === "break" ? dutyFor(day, b.id, me) : [];
+                    const si = SESSIONS.findIndex((s) => s.id === b.id);
+                    const isBreak = b.kind === "break";
+                    return (
+                      <div key={b.id} style={{ ...S.card, padding: "12px 16px", borderLeft: `4px solid ${isBreak ? "#F59E0B" : ids.length ? T.blue : T.line}`, background: isBreak ? "#FFFDF4" : T.card }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                          <div style={{ minWidth: 96 }}>
+                            <div style={{ fontFamily: F.display, fontWeight: 800, fontSize: 13.5, color: isBreak ? T.amber : T.ink }}>{b.label}</div>
+                            <div style={{ fontSize: 10.5, color: T.faint, fontWeight: 600 }}>{b.time}</div>
+                          </div>
+                          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
+                            {ids.map((sid) => {
+                              const st = studentById(sid);
+                              const absent = ov.absentS.includes(sid);
+                              const subj = !isBreak && st ? subjectFor(st, day, si) : "";
+                              const done = !isBreak && reflectionDone(day, b.id, roleId, sid);
+                              return (
+                                <div key={sid} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                  <button onClick={() => setProfileId(sid)} style={{ border: "none", background: "none", padding: 0, cursor: "pointer" }}>
+                                    <StudentChip st={st} struck={absent} />
+                                  </button>
+                                  {subj && <span style={{ fontSize: 11.5, fontWeight: 600, color: st && isPriority(st, subj) ? T.blueDeep : T.faint }}>{subj}</span>}
+                                  {absent && <Pill tone="red" style={{ padding: "1px 8px", fontSize: 9.5 }}>absent</Pill>}
+                                  {!isBreak && !absent && (
+                                    done
+                                      ? <Pill tone="green" style={{ padding: "1px 9px", fontSize: 9.5 }}>✓ reflected</Pill>
+                                      : <button onClick={() => { setReflectFor({ day, block: b.id, aideId: roleId, studentId: sid }); setReflectEng(0); setReflectReg(0); setReflectNote(""); }}
+                                          style={{ ...S.btnGhost, padding: "2px 10px", fontSize: 10.5 }}>Reflect</button>
+                                  )}
+                                </div>
+                              );
+                            })}
+                            {isBreak && duty.map((d2) => (
+                              <span key={d2} style={{ fontSize: 11, fontWeight: 700, color: T.amber }}>Yard duty · {d2}</span>
+                            ))}
+                            {!ids.length && !duty.length && (
+                              <span style={{ fontSize: 12, color: T.faint }}>{isBreak ? "Break — all yours" : "Free — may be used for cover"}</span>
+                            )}
+                          </div>
+                          {changed && <span title="Changed today" style={{ width: 9, height: 9, borderRadius: 999, background: "#F59E0B", flex: "0 0 auto" }} />}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button style={S.btn} onClick={() => { setFlagFor("pick"); setFlagCatSel("heads-up"); setFlagText(""); }}>+ Update / tag a student</button>
+              </div>
+              {recentNotes.length > 0 && (
+                <div style={{ ...S.card, padding: 16 }}>
+                  <span style={S.eyebrow}>Recent notes on your students</span>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
+                    {recentNotes.map((f) => {
+                      const cat = flagCat(f.category);
+                      return (
+                        <div key={f.id} style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+                          <Pill tone={cat.tone} style={{ padding: "1px 9px", fontSize: 9.5, marginRight: 6 }}>{cat.label}</Pill>
+                          <b>{studentById(f.sid)?.name}</b> — {f.text}
+                          <span style={{ color: T.faint, fontSize: 10.5 }}> · {f.by}, {fmtWhen(f.ts)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* ================= AIDE — MY WEEK ================= */}
+        {view === "aide-week" && role === "aide" && (() => {
+          const me = aideById(roleId);
+          return (
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div style={{ fontSize: 12.5, color: T.sub }}>
+                Your base week — the plan as it stands. Check <b>My day</b> each morning for what's actually on.
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 12 }}>
+                {DAYS.map((dy) => {
+                  const working = !!me?.days?.[dy];
+                  return (
+                    <div key={dy} style={{ ...S.card, padding: 14, opacity: working ? 1 : 0.55 }}>
+                      <div style={{ fontFamily: F.display, fontWeight: 800, fontSize: 14, marginBottom: 8 }}>
+                        {DAY_LABEL[dy]}{dayHasChanges(dy) && <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: 999, background: "#F59E0B", marginLeft: 6 }} title="Has day-of changes" />}
+                      </div>
+                      {!working && <div style={{ fontSize: 12, color: T.faint }}>Not working</div>}
+                      {working && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                          {BLOCKS.map((b) => {
+                            const ids = basePairs(dy, b.id, roleId);
+                            const duty = b.kind === "break" ? dutyFor(dy, b.id, me) : [];
+                            if (!ids.length && !duty.length) return null;
+                            const si = SESSIONS.findIndex((s) => s.id === b.id);
+                            return (
+                              <div key={b.id} style={{ fontSize: 11.5, lineHeight: 1.5 }}>
+                                <span style={{ fontWeight: 700, color: b.kind === "break" ? T.amber : T.blueDeep }}>{b.label.replace("Session ", "S")}</span>{" "}
+                                {ids.map((sid) => {
+                                  const st = studentById(sid);
+                                  const subj = st && si >= 0 ? subjectFor(st, dy, si) : "";
+                                  return <span key={sid}>{st?.name}{subj ? ` · ${subj}` : ""}{" "}</span>;
+                                })}
+                                {duty.map((d2) => <span key={d2} style={{ color: T.amber }}>Yard · {d2}</span>)}
+                              </div>
+                            );
+                          })}
+                          {BLOCKS.every((b) => !basePairs(dy, b.id, roleId).length && !(b.kind === "break" && dutyFor(dy, b.id, me).length)) && (
+                            <div style={{ fontSize: 12, color: T.faint }}>Nothing rostered yet</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* ================= TEACHER — MY CLASS ================= */}
+        {view === "teacher-home" && role === "teacher" && (() => {
+          const myKids = students.filter((s) => s.cls === roleId);
+          const ov = ovFor(day);
+          const kidFeed = myKids.flatMap((s) => flagsFor(s.id).map((f) => ({ ...f, sid: s.id })))
+            .filter((f) => f.ts > Date.now() - 7 * 86400000).sort((a, b) => b.ts - a.ts).slice(0, 8);
+          return (
+            <div style={{ display: "flex", flexDirection: "column", gap: 14, maxWidth: 860, margin: "0 auto" }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <DayPills value={day} onChange={setDay} />
+                <span style={{ flex: 1 }} />
+                <button style={S.btn} onClick={() => { setFlagFor("pick"); setFlagCatSel("heads-up"); setFlagText(""); }}>+ Update / tag a student</button>
+              </div>
+              {ov.note && (
+                <div style={{ borderRadius: 12, border: `1px solid ${T.blueLine}`, background: T.blueSoft, padding: "10px 14px", fontSize: 12.5, color: T.blueDeep }}>📌 {ov.note}</div>
+              )}
+              {!myKids.length && <div style={{ ...S.card, textAlign: "center", color: T.sub, fontSize: 13.5 }}>No supported students recorded for {roleId} yet.</div>}
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {myKids.map((st) => {
+                  const absent = ov.absentS.includes(st.id);
+                  const sessionsToday = BLOCKS.map((b) => {
+                    const aide = aides.find((a) => effPairs(day, b.id, a.id).includes(st.id));
+                    return aide ? { b, aide } : null;
+                  }).filter(Boolean);
+                  return (
+                    <div key={st.id} style={{ ...S.card, padding: 16, borderLeft: `4px solid ${absent ? "#EF4444" : T.blue}` }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                        <div style={{ fontFamily: F.display, fontWeight: 800, fontSize: 15, ...(absent ? { textDecoration: "line-through", color: T.red } : {}) }}>
+                          {st.name}
+                        </div>
+                        {absent && <Pill tone="red" style={{ padding: "1px 9px", fontSize: 9.5 }}>absent today</Pill>}
+                        <span style={{ fontSize: 11.5, color: T.sub }}>{sessionsToday.filter((x) => x.b.kind === "session").length}/{st.idealPerDay} ideal sessions covered {DAY_LABEL[day]}</span>
+                        <span style={{ flex: 1 }} />
+                        <button style={{ ...S.btnGhost, padding: "3px 12px", fontSize: 11 }} onClick={() => setProfileId(st.id)}>Profile</button>
+                        <button style={{ ...S.btnGhost, padding: "3px 12px", fontSize: 11 }} onClick={() => { setFlagFor(st.id); setFlagCatSel("heads-up"); setFlagText(""); }}>+ Update</button>
+                      </div>
+                      {!absent && (
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
+                          {sessionsToday.map(({ b, aide }) => {
+                            const si = SESSIONS.findIndex((s) => s.id === b.id);
+                            const subj = si >= 0 ? subjectFor(st, day, si) : "";
+                            return (
+                              <Pill key={b.id} tone={b.kind === "break" ? "amber" : "blue"} style={{ fontSize: 10.5, padding: "3px 11px" }}>
+                                {b.label.replace("Session ", "S")} · {aide.name}{subj ? ` · ${subj}` : b.kind === "break" ? " · break support" : ""}
+                              </Pill>
+                            );
+                          })}
+                          {!sessionsToday.length && <span style={{ fontSize: 12, color: T.faint }}>No aide sessions {DAY_LABEL[day]}</span>}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              {kidFeed.length > 0 && (
+                <div style={{ ...S.card, padding: 16 }}>
+                  <span style={S.eyebrow}>This week's updates on your students</span>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
+                    {kidFeed.map((f) => {
+                      const cat = flagCat(f.category);
+                      return (
+                        <div key={f.id} style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+                          <Pill tone={cat.tone} style={{ padding: "1px 9px", fontSize: 9.5, marginRight: 6 }}>{cat.label}</Pill>
+                          <b>{studentById(f.sid)?.name}</b> — {f.text}
+                          <span style={{ color: T.faint, fontSize: 10.5 }}> · {f.by}, {fmtWhen(f.ts)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* ================= INSIGHTS (admin) ================= */}
+        {view === "insights" && role === "admin" && (() => {
+          const now = Date.now();
+          const softWatch = students.filter((st) => flagsFor(st.id).filter((f) => f.category === "soft-signs" && f.ts > now - 14 * 86400000).length >= 2);
+          return (
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <div style={{ fontSize: 12.5, color: T.sub }}>
+                Patterns over time — flags by category, four-week trend, and how sessions feel by aide pairing (from reflections).
+              </div>
+              {softWatch.length > 0 && (
+                <div style={{ borderRadius: 12, border: `1px solid ${T.amberLine}`, background: T.amberSoft, padding: "12px 16px", fontSize: 13, color: T.amber, fontWeight: 600 }}>
+                  ⚠ Soft signs building: {softWatch.map((s) => s.name).join(", ")} — 2+ soft-sign flags in the last fortnight. Worth a Wellbeing conversation.
+                </div>
+              )}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(330px, 1fr))", gap: 14 }}>
+                {students.map((st) => {
+                  const fs = flagsFor(st.id);
+                  const catCounts = FLAG_CATS.map((c) => ({ c, n: fs.filter((f) => f.category === c.id && f.ts > now - 28 * 86400000).length })).filter((x) => x.n > 0);
+                  const weeks = [3, 2, 1, 0].map((w) => {
+                    const from = now - (w + 1) * 7 * 86400000, to = now - w * 7 * 86400000;
+                    return { w, n: fs.filter((f) => f.ts > from && f.ts <= to).length, soft: fs.filter((f) => f.category === "soft-signs" && f.ts > from && f.ts <= to).length };
+                  });
+                  const maxN = Math.max(1, ...weeks.map((x) => x.n));
+                  const refs = reflections.filter((r) => r.studentId === st.id);
+                  const avg = (arr, k) => (arr.length ? (arr.reduce((s2, r) => s2 + r[k], 0) / arr.length).toFixed(1) : null);
+                  const byAide = aides.map((a) => ({ a, rs: refs.filter((r) => r.aideId === a.id) })).filter((x) => x.rs.length);
+                  return (
+                    <div key={st.id} style={{ ...S.card, padding: 16 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div style={{ fontFamily: F.display, fontWeight: 800, fontSize: 15 }}>{st.name}</div>
+                        <span style={{ fontSize: 11, color: T.faint, fontWeight: 600 }}>{st.cls}</span>
+                        <span style={{ flex: 1 }} />
+                        <button style={{ ...S.btnGhost, padding: "2px 11px", fontSize: 10.5 }} onClick={() => setProfileId(st.id)}>Profile</button>
+                      </div>
+                      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 8 }}>
+                        {catCounts.map(({ c, n }) => <Pill key={c.id} tone={c.tone} style={{ padding: "1px 9px", fontSize: 9.5 }}>{c.label} × {n}</Pill>)}
+                        {!catCounts.length && <span style={{ fontSize: 11.5, color: T.faint }}>No flags in the last 4 weeks</span>}
+                      </div>
+                      <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 44, marginTop: 12 }}>
+                        {weeks.map(({ w, n, soft }) => (
+                          <div key={w} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                            <div style={{ width: "100%", height: Math.round((n / maxN) * 34) + 2, borderRadius: 4, background: soft > 0 ? "#F59E0B" : T.blueLine, position: "relative" }} title={`${n} flags${soft ? ` (${soft} soft signs)` : ""}`} />
+                            <span style={{ fontSize: 8.5, color: T.faint, fontWeight: 600 }}>{w === 0 ? "this wk" : `-${w}wk`}</span>
+                          </div>
+                        ))}
+                      </div>
+                      {refs.length > 0 && (
+                        <div style={{ marginTop: 10, fontSize: 11.5, color: T.sub, lineHeight: 1.7 }}>
+                          <b style={{ color: T.ink }}>Sessions feel</b> — engagement {avg(refs, "engagement")}/5 · regulation {avg(refs, "regulation")}/5 <span style={{ color: T.faint }}>({refs.length} reflection{refs.length !== 1 ? "s" : ""})</span>
+                          {byAide.map(({ a, rs }) => (
+                            <div key={a.id}>· with <b style={{ color: T.ink }}>{a.name}</b>: {avg(rs, "engagement")}/5 eng, {avg(rs, "regulation")}/5 reg ({rs.length})</div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {!students.length && <div style={{ fontSize: 13, color: T.faint }}>Add students first.</div>}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* ================= SETTINGS (admin) ================= */}
+        {view === "settings" && role === "admin" && (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 16, alignItems: "start" }}>
+            <div style={{ ...S.card, padding: 20 }}>
+              <span style={S.eyebrow}>Admin passcode</span>
+              <div style={{ fontSize: 12, color: T.sub, margin: "8px 0 12px", lineHeight: 1.5 }}>
+                Gates the admin pages on this device. Prototype-grade only — it isn't encryption.
+              </div>
+              <label style={S.label}>New passcode</label>
+              <input style={S.input} type="password" value={passNew} onChange={(e) => setPassNew(e.target.value)} placeholder="At least 4 characters" />
+              <label style={{ ...S.label, marginTop: 8 }}>Confirm</label>
+              <input style={S.input} type="password" value={passNew2} onChange={(e) => setPassNew2(e.target.value)} />
+              <button style={{ ...S.btn, marginTop: 12 }} onClick={() => {
+                if (passNew.length < 4) return window.alert("Passcode needs at least 4 characters.");
+                if (passNew !== passNew2) return window.alert("Passcodes don't match.");
+                setAdminPass(passNew); setPassNew(""); setPassNew2(""); window.alert("Passcode updated.");
+              }}>Update passcode</button>
+            </div>
+            <div style={{ ...S.card, padding: 20 }}>
+              <span style={S.eyebrow}>Urgent-alert group</span>
+              <div style={{ fontSize: 12, color: T.sub, margin: "8px 0 12px", lineHeight: 1.5 }}>
+                Who the ⚠ Urgent button names. In this prototype the alert lands in everyone's bell feed — in a real rollout it would page these people.
+              </div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                {notifyGroup.map((n) => (
+                  <Pill key={n} tone="red" style={{ fontSize: 11 }}>
+                    {n}
+                    <button onClick={() => setNotifyGroup((xs) => xs.filter((x) => x !== n))}
+                      style={{ border: "none", background: "none", cursor: "pointer", color: T.red, padding: 0, fontSize: 11 }}>✕</button>
+                  </Pill>
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+                <input style={{ ...S.input, flex: 1 }} value={newStaffName} onChange={(e) => setNewStaffName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && newStaffName.trim()) { setNotifyGroup((xs) => [...new Set([...xs, newStaffName.trim()])]); setNewStaffName(""); } }}
+                  placeholder="Wellbeing Team, principal, an aide…" />
+                <button style={{ ...S.btnGhost }} onClick={() => { if (newStaffName.trim()) { setNotifyGroup((xs) => [...new Set([...xs, newStaffName.trim()])]); setNewStaffName(""); } }}>Add</button>
+              </div>
+            </div>
+            <div style={{ ...S.card, padding: 20 }}>
+              <span style={S.eyebrow}>Privacy & data</span>
+              <div style={{ fontSize: 12.5, color: T.sub, marginTop: 8, lineHeight: 1.8 }}>
+                · Closed prototype — everything lives in this browser only; nothing is transmitted.<br />
+                · Use <b>first names + initial</b> only. Never surnames, dates of birth, photos or addresses.<br />
+                · The urgent alert is simulated. Serious concerns always go by phone to the Wellbeing Team.<br />
+                · A real multi-user version needs a school-approved service with authentication and Australian data residency, via the department's software approval process.
+              </div>
+              <button style={{ ...S.btnGhost, marginTop: 14, color: T.red, borderColor: T.redLine }} onClick={() => {
+                if (!window.confirm("Erase ALL data in this browser — timetables, students, flags, reflections, everything?")) return;
+                setAides([]); setStudents([]); setClasses({}); setPlan({}); setYard({}); setYardAreas(DEFAULT_AREAS);
+                setExtraStaff([]); setDayOv({}); setNotifyGroup(["Wellbeing Team"]); setFlags({}); setReflections([]); setActivity([]); setLastSeen({});
+              }}>Erase all data</button>
+            </div>
           </div>
         )}
       </div>
@@ -1574,6 +2269,273 @@ export default function App() {
                   onClick={() => { setCellPairs(dy, blockId, aideId, [], mode); setEditCell(null); }}>
                   Clear cell
                 </button>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ================= STUDENT PROFILE MODAL ================= */}
+      {profileId && (() => {
+        const st = studentById(profileId);
+        if (!st) return null;
+        const fs = flagsFor(st.id).slice(0, 8);
+        const refs = reflections.filter((r) => r.studentId === st.id).slice(0, 5);
+        const avg = (k) => (refs.length ? (refs.reduce((s2, r) => s2 + r[k], 0) / refs.length).toFixed(1) : null);
+        const isAdmin = role === "admin";
+        return (
+          <div onClick={() => setProfileId(null)}
+            style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.4)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+            <div onClick={(e) => e.stopPropagation()}
+              style={{ ...S.card, boxShadow: T.shadowLift, width: 620, maxWidth: "100%", maxHeight: "86vh", overflowY: "auto", padding: 22 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+                <div style={{ fontFamily: F.display, fontWeight: 800, fontSize: 19 }}>{st.name}</div>
+                {st.cls && <Pill style={{ padding: "2px 10px", fontSize: 10.5 }}>{st.cls}{st.year ? ` · Year ${st.year}` : ""}</Pill>}
+                <span style={{ flex: 1 }} />
+                <button style={{ ...S.btnGhost, padding: "3px 10px", fontSize: 12 }} onClick={() => setProfileId(null)}>✕</button>
+              </div>
+              <div style={{ fontSize: 11.5, color: T.sub, marginBottom: 14 }}>
+                {st.idealPerDay} ideal sessions/day · {hrs(weekMinutes(st.id))} planned this week{st.fundedHrs != null ? ` · ${st.fundedHrs}h funded` : ""}
+              </div>
+
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+                <button style={{ ...S.btn, padding: "6px 14px", fontSize: 12 }} onClick={() => { setFlagFor(st.id); setFlagCatSel("heads-up"); setFlagText(""); }}>+ Update / tag</button>
+                <button style={{ ...S.btnGhost, padding: "6px 14px", fontSize: 12, color: "#DC2626", borderColor: T.redLine }}
+                  onClick={() => { setUrgentOpen(true); setUrgentSent(false); setUrgentStudent(st.id); setUrgentReason(URGENT_REASONS[0]); setUrgentNote(""); }}>⚠ Urgent</button>
+              </div>
+
+              <label style={S.label}>Strategies that work</label>
+              {isAdmin ? (
+                <textarea style={{ ...S.input, minHeight: 64, resize: "vertical" }} value={st.strategies || ""}
+                  onChange={(e) => patchStudent(st.id, { strategies: e.target.value })}
+                  placeholder="First/then language · movement breaks · visual timetable…" />
+              ) : (
+                <div style={{ fontSize: 13, lineHeight: 1.6, background: "#FAFBFD", border: `1px solid ${T.lineSoft}`, borderRadius: 10, padding: "10px 12px" }}>
+                  {st.strategies || <span style={{ color: T.faint }}>None recorded yet.</span>}
+                </div>
+              )}
+
+              <label style={{ ...S.label, marginTop: 14 }}>IEP goals</label>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {(st.iepGoals || []).map((g) => (
+                  <div key={g.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, background: T.blueSoft, border: `1px solid ${T.blueLine}`, borderRadius: 10, padding: "8px 12px" }}>
+                    <span style={{ fontSize: 13, color: T.blueDeep, fontWeight: 600, flex: 1, lineHeight: 1.5 }}>
+                      {g.goal}{g.note && <span style={{ fontWeight: 400, color: T.sub }}> — {g.note}</span>}
+                    </span>
+                    {isAdmin && (
+                      <button onClick={() => patchStudent(st.id, { iepGoals: st.iepGoals.filter((x) => x.id !== g.id) })}
+                        style={{ border: "none", background: "none", cursor: "pointer", color: T.faint, fontSize: 12, padding: 0 }}>✕</button>
+                    )}
+                  </div>
+                ))}
+                {!(st.iepGoals || []).length && <span style={{ fontSize: 12.5, color: T.faint }}>No goals recorded.</span>}
+                {isAdmin && (
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <input style={{ ...S.input, flex: 1 }} value={newGoal} onChange={(e) => setNewGoal(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter" && newGoal.trim()) { patchStudent(st.id, { iepGoals: [...(st.iepGoals || []), { id: uid(), goal: newGoal.trim(), note: "" }] }); setNewGoal(""); } }}
+                      placeholder="Add a goal…" />
+                    <button style={S.btnGhost} onClick={() => { if (newGoal.trim()) { patchStudent(st.id, { iepGoals: [...(st.iepGoals || []), { id: uid(), goal: newGoal.trim(), note: "" }] }); setNewGoal(""); } }}>Add</button>
+                  </div>
+                )}
+              </div>
+
+              {refs.length > 0 && (
+                <>
+                  <label style={{ ...S.label, marginTop: 14 }}>How sessions have felt <span style={{ color: T.faint, fontWeight: 500 }}>(latest reflections)</span></label>
+                  <div style={{ fontSize: 12.5, color: T.sub, marginBottom: 6 }}>Engagement {avg("engagement")}/5 · Regulation {avg("regulation")}/5</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    {refs.filter((r) => r.note).map((r) => (
+                      <div key={r.id} style={{ fontSize: 12, color: T.sub, lineHeight: 1.5 }}>
+                        "{r.note}" <span style={{ color: T.faint, fontSize: 10.5 }}>— {aideById(r.aideId)?.name}, {fmtWhen(r.ts)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              <label style={{ ...S.label, marginTop: 14 }}>Recent updates</label>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {fs.map((f) => {
+                  const cat = flagCat(f.category);
+                  return (
+                    <div key={f.id} style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+                      <Pill tone={cat.tone} style={{ padding: "1px 9px", fontSize: 9.5, marginRight: 6 }}>{cat.label}</Pill>
+                      {f.text}
+                      <span style={{ color: T.faint, fontSize: 10.5 }}> · {f.by}, {fmtWhen(f.ts)}</span>
+                    </div>
+                  );
+                })}
+                {!fs.length && <span style={{ fontSize: 12.5, color: T.faint }}>No updates yet.</span>}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ================= ADD UPDATE / FLAG MODAL ================= */}
+      {flagFor && (() => {
+        const picking = flagFor === "pick";
+        const st = picking ? null : studentById(flagFor);
+        const pickable = role === "admin" ? students : students.filter((s) => myStudentIds().includes(s.id));
+        return (
+          <div onClick={() => setFlagFor(null)}
+            style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.4)", zIndex: 55, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+            <div onClick={(e) => e.stopPropagation()}
+              style={{ ...S.card, boxShadow: T.shadowLift, width: 480, maxWidth: "100%", maxHeight: "84vh", overflowY: "auto", padding: 20 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <div style={{ fontFamily: F.display, fontWeight: 800, fontSize: 16 }}>
+                  {picking ? "Update / tag a student" : `Update — ${st?.name}`}
+                </div>
+                <span style={{ flex: 1 }} />
+                <button style={{ ...S.btnGhost, padding: "3px 10px", fontSize: 12 }} onClick={() => setFlagFor(null)}>✕</button>
+              </div>
+              <div style={{ fontSize: 11.5, color: T.sub, marginBottom: 12 }}>
+                Seen by admin and by the aides and teacher working with this student — for the rest of today and beyond.
+              </div>
+              {picking ? (
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {pickable.map((s2) => (
+                    <button key={s2.id} style={S.btnGhost} onClick={() => setFlagFor(s2.id)}>{s2.name}{s2.cls ? ` · ${s2.cls}` : ""}</button>
+                  ))}
+                  {!pickable.length && <span style={{ fontSize: 12.5, color: T.faint }}>No students linked to you yet.</span>}
+                </div>
+              ) : (
+                <>
+                  <label style={S.label}>What kind of update?</label>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+                    {FLAG_CATS.map((c) => (
+                      <button key={c.id} onClick={() => setFlagCatSel(c.id)}
+                        style={{ ...S.btnGhost, padding: "5px 13px", fontSize: 11.5,
+                          ...(flagCatSel === c.id ? { background: T.ink, color: "#FFF", borderColor: T.ink } : {}) }}>
+                        {c.label}
+                      </button>
+                    ))}
+                  </div>
+                  {flagCatSel === "soft-signs" && (
+                    <div style={{ fontSize: 11.5, color: T.amber, background: T.amberSoft, border: `1px solid ${T.amberLine}`, borderRadius: 10, padding: "8px 11px", marginBottom: 10, lineHeight: 1.5 }}>
+                      Soft signs — subtle shifts worth noting: withdrawn, restless, teary, off food, seeking out adults. Patterns show up in Insights.
+                    </div>
+                  )}
+                  <label style={S.label}>The update</label>
+                  <textarea style={{ ...S.input, minHeight: 70, resize: "vertical" }} value={flagText} onChange={(e) => setFlagText(e.target.value)}
+                    placeholder="Rough start at drop-off — went well with quiet reading. Keep transitions gentle today." autoFocus />
+                  <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                    <button style={S.btn} disabled={!flagText.trim()}
+                      onClick={() => { addFlag(flagFor, flagCatSel, flagText); setFlagFor(null); }}>
+                      Post update
+                    </button>
+                    <button style={S.btnGhost} onClick={() => setFlagFor(null)}>Cancel</button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ================= REFLECTION MODAL ================= */}
+      {reflectFor && (() => {
+        const st = studentById(reflectFor.studentId);
+        const b = BLOCKS.find((x) => x.id === reflectFor.block);
+        const Scale = ({ value, onChange, kind }) => (
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            {RATING.map((n) => (
+              <button key={n} onClick={() => onChange(n)}
+                style={{ ...S.btnGhost, width: 38, padding: "8px 0", fontSize: 13, fontWeight: 800, textAlign: "center",
+                  ...(value === n ? { background: T.blue, color: "#FFF", borderColor: T.blue } : {}) }}>
+                {n}
+              </button>
+            ))}
+            {value > 0 && <span style={{ fontSize: 11.5, color: T.sub, fontWeight: 600 }}>{RATING_LABEL[kind][value - 1]}</span>}
+          </div>
+        );
+        return (
+          <div onClick={() => setReflectFor(null)}
+            style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.4)", zIndex: 55, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+            <div onClick={(e) => e.stopPropagation()}
+              style={{ ...S.card, boxShadow: T.shadowLift, width: 460, maxWidth: "100%", padding: 20 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <div style={{ fontFamily: F.display, fontWeight: 800, fontSize: 16 }}>Quick reflection — {st?.name}</div>
+                <span style={{ flex: 1 }} />
+                <button style={{ ...S.btnGhost, padding: "3px 10px", fontSize: 12 }} onClick={() => setReflectFor(null)}>✕</button>
+              </div>
+              <div style={{ fontSize: 11.5, color: T.sub, marginBottom: 14 }}>{DAY_LABEL[reflectFor.day]} · {b?.label} — 20 seconds, feeds the patterns in Insights.</div>
+              <label style={S.label}>Engagement</label>
+              <Scale value={reflectEng} onChange={setReflectEng} kind="engagement" />
+              <label style={{ ...S.label, marginTop: 12 }}>Regulation</label>
+              <Scale value={reflectReg} onChange={setReflectReg} kind="regulation" />
+              <label style={{ ...S.label, marginTop: 12 }}>Anything worth noting? <span style={{ color: T.faint, fontWeight: 500 }}>(optional)</span></label>
+              <textarea style={{ ...S.input, minHeight: 56, resize: "vertical" }} value={reflectNote} onChange={(e) => setReflectNote(e.target.value)}
+                placeholder="What worked, what didn't, anything for tomorrow…" />
+              <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+                <button style={S.btn} disabled={!reflectEng || !reflectReg}
+                  onClick={() => { addReflection({ ...reflectFor, engagement: reflectEng, regulation: reflectReg, note: reflectNote.trim() }); setReflectFor(null); }}>
+                  Save reflection
+                </button>
+                <button style={S.btnGhost} onClick={() => setReflectFor(null)}>Not now</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ================= URGENT SUPPORT MODAL (simulated) ================= */}
+      {urgentOpen && (() => {
+        const pickable = role === "admin" ? students : students.filter((s) => myStudentIds().includes(s.id));
+        return (
+          <div onClick={() => setUrgentOpen(false)}
+            style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.5)", zIndex: 70, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+            <div onClick={(e) => e.stopPropagation()}
+              style={{ ...S.card, boxShadow: T.shadowLift, width: 500, maxWidth: "100%", maxHeight: "86vh", overflowY: "auto", padding: 20, borderTop: "4px solid #DC2626" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <div style={{ fontFamily: F.display, fontWeight: 800, fontSize: 17, color: "#DC2626" }}>⚠ Request immediate support</div>
+                <span style={{ flex: 1 }} />
+                <button style={{ ...S.btnGhost, padding: "3px 10px", fontSize: 12 }} onClick={() => setUrgentOpen(false)}>✕</button>
+              </div>
+              <div style={{ borderRadius: 10, border: `1px solid ${T.redLine}`, background: T.redSoft, padding: "9px 12px", fontSize: 12, color: T.red, fontWeight: 600, lineHeight: 1.5, marginBottom: 14 }}>
+                Prototype — this does NOT actually notify anyone. In a real situation, phone the office / Wellbeing Team first. This button logs the request and flags it in every bell feed.
+              </div>
+              {urgentSent ? (
+                <div style={{ textAlign: "center", padding: "10px 0 4px" }}>
+                  <div style={{ fontSize: 34 }}>✓</div>
+                  <div style={{ fontFamily: F.display, fontWeight: 800, fontSize: 15, marginBottom: 6 }}>Logged & flagged</div>
+                  <div style={{ fontSize: 12.5, color: T.sub, lineHeight: 1.6, marginBottom: 14 }}>
+                    In a live rollout, {notifyGroup.join(", ")} would be paged right now. Here it's in the activity feed for everyone.
+                  </div>
+                  <button style={S.btn} onClick={() => setUrgentOpen(false)}>Close</button>
+                </div>
+              ) : (
+                <>
+                  <label style={S.label}>Student <span style={{ color: T.faint, fontWeight: 500 }}>(optional)</span></label>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+                    {pickable.map((s2) => (
+                      <button key={s2.id} onClick={() => setUrgentStudent(urgentStudent === s2.id ? null : s2.id)}
+                        style={{ ...S.btnGhost, padding: "4px 12px", fontSize: 11.5,
+                          ...(urgentStudent === s2.id ? { background: "#DC2626", color: "#FFF", borderColor: "#DC2626" } : {}) }}>
+                        {s2.name}
+                      </button>
+                    ))}
+                  </div>
+                  <label style={S.label}>What's happening?</label>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+                    {URGENT_REASONS.map((r) => (
+                      <button key={r} onClick={() => setUrgentReason(r)}
+                        style={{ ...S.btnGhost, padding: "4px 12px", fontSize: 11.5,
+                          ...(urgentReason === r ? { background: T.ink, color: "#FFF", borderColor: T.ink } : {}) }}>
+                        {r}
+                      </button>
+                    ))}
+                  </div>
+                  <label style={S.label}>Where / details</label>
+                  <input style={S.input} value={urgentNote} onChange={(e) => setUrgentNote(e.target.value)} placeholder="e.g. 5C classroom, needs a second adult" />
+                  <div style={{ fontSize: 11.5, color: T.sub, margin: "12px 0" }}>
+                    Would notify: {notifyGroup.map((n) => <Pill key={n} tone="red" style={{ padding: "1px 9px", fontSize: 10, marginRight: 4 }}>{n}</Pill>)}
+                  </div>
+                  <button style={{ ...S.btn, background: "#DC2626", boxShadow: "0 1px 2px rgba(220,38,38,.35), 0 6px 16px rgba(220,38,38,.25)", width: "100%" }}
+                    onClick={() => { sendUrgent(urgentStudent, urgentReason, urgentNote.trim()); setUrgentSent(true); }}>
+                    Send urgent request (simulated)
+                  </button>
+                </>
               )}
             </div>
           </div>

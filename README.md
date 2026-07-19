@@ -9,7 +9,26 @@ Paste it into a claude.ai artifact (like the Chunk & Check planner) or drop it i
 React project. No build config needed; data persists via `window.storage` on claude.ai
 and `localStorage` everywhere else.
 
-## Tabs
+> **Prototype status:** single-browser demo. Logins, notifications and the urgent alert
+> are simulated — there is no server, so nothing is shared between devices or actually
+> sent to anyone. Use first names + initial only; no real student data. A real
+> multi-user rollout needs a school-approved, Australian-hosted service.
+
+## Roles
+
+| Role | Login | What they see |
+| --- | --- | --- |
+| **Admin** | Passcode (first login sets it; changeable in Settings) | Everything below, plus **Insights** (patterns over time) and **Settings** (passcode, urgent-alert group, privacy, erase-all). |
+| **Aide** | Tap their name | **My day** — their sessions/breaks/yard duty for the chosen day with day-of changes highlighted, tap-to-open student profiles, a per-session **Reflect** button (engagement + regulation 1–5 and a note), quick **+ Update / tag a student**, and the recent-notes strip. **My week** — their base week. |
+| **Teacher** | Tap their class | **My class** — each supported student's aide sessions today (who, when, which subject), absence state, profile access, and this week's updates on their students. |
+
+All three get the **🔔 bell** (timetable changes, updates, reflections and urgent alerts
+relevant to them, with an unread badge) and the **⚠ Urgent** button — a clearly-labelled
+simulated alert that names the notify group set in Settings, logs to every feed, and
+flags the student. Student **profiles** carry strategies that work, IEP goals
+(admin-editable), recent updates, and how sessions have felt.
+
+## Admin tabs
 
 | Tab | What it does |
 | --- | --- |
