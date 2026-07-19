@@ -291,6 +291,7 @@ export default function App() {
   const [impPreview, setImpPreview] = useState(null); // parsed JSON awaiting Apply
   const [impErr, setImpErr] = useState("");
   const fileRef = useRef(null);
+  const loadRef = useRef(null);
 
   /* ---------- persistence — everything in one doc ---------- */
   const storeLoaded = useRef(false);
@@ -519,6 +520,27 @@ export default function App() {
     return { n, breaks };
   };
   const aideYardCount = (name) => Object.values(yard).filter((v) => v === name).length;
+
+  /* ---------- backup — belt-and-braces when browser storage isn't available ---------- */
+  const exportData = () => {
+    const doc = JSON.stringify({ aides, students, classes, plan, yard, yardAreas, extraStaff, dayOv }, null, 2);
+    const blob = new Blob([doc], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "aide-timetable-backup.json";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+  const loadData = async (file) => {
+    if (!file) return;
+    try {
+      const d = JSON.parse(await fileToText(file));
+      if (!window.confirm("Replace everything with this backup?")) return;
+      setAides(d.aides || []); setStudents(d.students || []); setClasses(d.classes || {});
+      setPlan(d.plan || {}); setYard(d.yard || {}); setYardAreas(d.yardAreas || DEFAULT_AREAS);
+      setExtraStaff(d.extraStaff || []); setDayOv(d.dayOv || {});
+    } catch { window.alert("That file isn't a valid backup."); }
+  };
 
   /* ---------- import ---------- */
   const runImport = async (text) => {
@@ -760,6 +782,9 @@ export default function App() {
                 {lab}
               </button>
             ))}
+            <button style={{ ...S.btnGhost, padding: "5px 12px", fontSize: 11, color: T.sub }} onClick={exportData} title="Download everything as a JSON backup">Backup</button>
+            <button style={{ ...S.btnGhost, padding: "5px 12px", fontSize: 11, color: T.sub }} onClick={() => loadRef.current?.click()} title="Restore from a JSON backup">Restore</button>
+            <input ref={loadRef} type="file" hidden accept=".json,application/json" onChange={(e) => { loadData(e.target.files?.[0]); e.target.value = ""; }} />
             {savedMsg && <Pill tone="green" style={{ fontSize: 10.5 }}>{savedMsg}</Pill>}
           </div>
         </div>
