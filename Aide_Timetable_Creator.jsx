@@ -206,9 +206,9 @@ const BLOCKS = [
   { id: "recess", kind: "break", label: "Recess", time: "10:40–11:10" },
   { id: "s3", kind: "session", label: "Session 3", time: "11:10–12:00" },
   { id: "s4", kind: "session", label: "Session 4", time: "12:00–12:50" },
-  { id: "lunch", kind: "break", label: "Lunch", time: "12:50–1:40" },
-  { id: "s5", kind: "session", label: "Session 5", time: "1:40–2:30" },
-  { id: "s6", kind: "session", label: "Session 6", time: "2:30–3:20" },
+  { id: "lunch", kind: "break", label: "Lunch", time: "12:50–1:50" },
+  { id: "s5", kind: "session", label: "Session 5", time: "1:50–2:40" },
+  { id: "s6", kind: "session", label: "Session 6", time: "2:40–3:30" },
 ];
 const SESSIONS = BLOCKS.filter((b) => b.kind === "session");
 const SESSION_MIN = 50;
@@ -217,9 +217,9 @@ const SESSION_MIN = 50;
 const YARD_SLOTS = [
   { id: "before", label: "Before school", time: "8:45–9:00" },
   { id: "recess", label: "Recess", time: "10:40–11:10" },
-  { id: "lunch1", label: "Lunch · 1st half", time: "12:50–1:15" },
-  { id: "lunch2", label: "Lunch · 2nd half", time: "1:15–1:40" },
-  { id: "after", label: "After school", time: "3:20–3:35" },
+  { id: "lunch1", label: "Lunch · 1st half", time: "12:50–1:20" },
+  { id: "lunch2", label: "Lunch · 2nd half", time: "1:20–1:50" },
+  { id: "after", label: "After school", time: "3:30–3:45" },
 ];
 const DEFAULT_AREAS = ["Oval", "Playground", "Courts", "Front gate"];
 /* which yard slots overlap which break column in the week grid */
@@ -235,7 +235,7 @@ const CLASSTT_PROMPT = `You are reading one or more primary-school class timetab
 Rules: each day is an array of exactly 6 subject strings in session order (use "" for unknown). Fold double sessions into two identical entries. Use short subject names ("Reading", "Maths", "PE", "Art"). name = class code, year = year level.`;
 const WEEKTT_PROMPT = `You are reading an existing primary-school aide / education-support timetable (any layout — grid, list, roster). Extract every support assignment you can find. Respond with ONLY valid JSON, no prose, in exactly this shape:
 {"assignments":[{"day":"Mon","block":"s1","aide":"Karen M","students":["Archie B"]}]}
-Rules: day = Mon/Tue/Wed/Thu/Fri. block = which part of the six-session day the assignment falls in: s1 (9:00–9:50), s2 (9:50–10:40), s3 (11:10–12:00), s4 (12:00–12:50), s5 (1:40–2:30), s6 (2:30–3:20), or "recess"/"lunch" for break-time support. Map times or period names onto the closest block; split double sessions or full mornings into one entry per block. aide = the staff member's name exactly as written. students = the supported student name(s) in that block (a class code like "3B" is NOT a student — skip entries with no identifiable student). One entry per aide per block per day; include every day you can find.`;
+Rules: day = Mon/Tue/Wed/Thu/Fri. block = which part of the six-session day the assignment falls in: s1 (9:00–9:50), s2 (9:50–10:40), s3 (11:10–12:00), s4 (12:00–12:50), s5 (1:50–2:40), s6 (2:40–3:30), or "recess"/"lunch" for break-time support. Map times or period names onto the closest block; split double sessions or full mornings into one entry per block. aide = the staff member's name exactly as written. students = the supported student name(s) in that block (a class code like "3B" is NOT a student — skip entries with no identifiable student). One entry per aide per block per day; include every day you can find.`;
 
 /* ---------- flags, reflections, urgent — quick tags for what's happening ---------- */
 const FLAG_CATS = [
