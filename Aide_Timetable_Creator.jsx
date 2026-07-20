@@ -371,6 +371,7 @@ export default function App() {
   const [day, setDay] = useState("Mon");           // week + today + yard selected day — also stands in for "today"
   const [wholeWeek, setWholeWeek] = useState(false);
   const [weekBy, setWeekBy] = useState("student");  // "student" (rows = students, coloured by aide) | "aide" (rows = aides)
+  const [pickCell, setPickCell] = useState(null);   // { dy, blockId, studentId, x, y } — aide picker in the By-student grid
   const [editCell, setEditCell] = useState(null);  // { day, blockId, aideId, mode:"base"|"today" }
   const [editAide, setEditAide] = useState(null);  // aide id being edited
   const [editStudent, setEditStudent] = useState(null);
@@ -480,6 +481,25 @@ export default function App() {
 
   const cellKey = (dy, blockId, aideId) => `${dy}|${blockId}|${aideId}`;
   const basePairs = (dy, blockId, aideId) => plan[cellKey(dy, blockId, aideId)] || [];
+  /* add / remove one student from one aide's base cell (used by the By-student picker) */
+  const toggleBaseAssign = (dy, blockId, aideId, studentId) => setPlan((p) => {
+    const k = cellKey(dy, blockId, aideId);
+    const cur = p[k] || [];
+    const next = cur.includes(studentId) ? cur.filter((x) => x !== studentId) : [...cur, studentId];
+    const np = { ...p };
+    if (next.length) np[k] = next; else delete np[k];
+    return np;
+  });
+  /* remove a student from every aide in one day+block */
+  const clearBaseAssign = (dy, blockId, studentId) => setPlan((p) => {
+    const np = {};
+    for (const [k, v] of Object.entries(p)) {
+      const [d, bl] = k.split("|");
+      if (d === dy && bl === blockId) { const nv = v.filter((x) => x !== studentId); if (nv.length) np[k] = nv; }
+      else np[k] = v;
+    }
+    return np;
+  });
   const ovFor = (dy) => dayOv[dy] || { absentS: [], absentA: [], cells: {}, note: "" };
   const effPairs = (dy, blockId, aideId) => {
     const ov = ovFor(dy);
@@ -1066,23 +1086,24 @@ export default function App() {
   const StudentGrid = ({ dy, mode }) => {
     const ov = ovFor(dy);
     const today = mode === "today";
+    const editable = !today;
     const kids = [...students].sort((a, b) => (a.cls || "").localeCompare(b.cls || "") || (a.name || "").localeCompare(b.name || ""));
     return (
-      <div style={{ overflowX: "auto", border: `1px solid ${T.line}`, borderRadius: 14, background: T.card }}>
+      <div style={{ overflowX: "auto", border: `1px solid ${T.line}`, borderRadius: 12, background: T.card }}>
         <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 900 }}>
           <thead>
             <tr>
-              <th style={{ padding: "10px 12px", textAlign: "left", fontFamily: F.body, fontSize: 11, fontWeight: 700, color: T.faint, borderBottom: `1px solid ${T.line}`, minWidth: 140 }}>
+              <th style={{ padding: "5px 10px", textAlign: "left", fontFamily: F.body, fontSize: 10.5, fontWeight: 700, color: T.faint, borderBottom: `1px solid ${T.line}`, minWidth: 128 }}>
                 {DAY_LABEL[dy]}
               </th>
               {BLOCKS.map((b) => (
                 <th key={b.id} style={{
-                  padding: "8px 8px", textAlign: "center", fontFamily: F.body, fontSize: 11, fontWeight: 700,
+                  padding: "5px 6px", textAlign: "center", fontFamily: F.body, fontSize: 10.5, fontWeight: 700,
                   color: b.kind === "break" ? T.amber : T.ink, borderBottom: `1px solid ${T.line}`,
-                  background: b.kind === "break" ? T.amberSoft : undefined, minWidth: b.kind === "break" ? 86 : 104,
+                  background: b.kind === "break" ? T.amberSoft : undefined, minWidth: b.kind === "break" ? 78 : 100,
                 }}>
                   {b.label}
-                  <div style={{ fontSize: 9.5, fontWeight: 600, color: T.faint }}>{b.time}</div>
+                  <div style={{ fontSize: 9, fontWeight: 600, color: T.faint }}>{b.time}</div>
                 </th>
               ))}
             </tr>
@@ -1092,12 +1113,12 @@ export default function App() {
               const kidAbsent = today && ov.absentS.includes(kid.id);
               return (
                 <tr key={kid.id}>
-                  <td style={{ padding: "8px 12px", borderBottom: `1px solid ${T.lineSoft}`, background: kidAbsent ? T.redSoft : undefined }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }} onClick={() => setProfileId(kid.id)}>
-                      <div style={{ fontFamily: F.display, fontWeight: 700, fontSize: 12.5, ...(kidAbsent ? { textDecoration: "line-through", color: T.red } : {}) }}>{kid.name || "?"}</div>
-                      <span style={{ fontSize: 10.5, color: T.faint, fontWeight: 600 }}>{kid.cls}</span>
+                  <td style={{ padding: "3px 10px", borderBottom: `1px solid ${T.lineSoft}`, background: kidAbsent ? T.redSoft : undefined }}>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 5, cursor: "pointer" }} onClick={() => setProfileId(kid.id)}>
+                      <span style={{ fontFamily: F.display, fontWeight: 700, fontSize: 12, ...(kidAbsent ? { textDecoration: "line-through", color: T.red } : {}) }}>{kid.name || "?"}</span>
+                      <span style={{ fontSize: 9.5, color: T.faint, fontWeight: 600 }}>{kid.cls}</span>
                     </div>
-                    {kidAbsent && <div style={{ fontSize: 10, fontWeight: 700, color: T.red }}>Absent today</div>}
+                    {kidAbsent && <div style={{ fontSize: 9.5, fontWeight: 700, color: T.red }}>Absent</div>}
                   </td>
                   {BLOCKS.map((b) => {
                     const si = SESSIONS.findIndex((s) => s.id === b.id);
@@ -1108,19 +1129,23 @@ export default function App() {
                     const first = assigned[0];
                     const col = first ? aideColor(first.ai) : null;
                     const uncovered = today && assigned.length > 0 && assigned.every(({ a }) => aAbsent(a)) && !kidAbsent;
+                    const isOpen = pickCell && pickCell.dy === dy && pickCell.blockId === b.id && pickCell.studentId === kid.id;
                     return (
-                      <td key={b.id} style={{
-                        borderBottom: `1px solid ${T.lineSoft}`, borderLeft: `1px solid ${T.lineSoft}`,
-                        padding: "6px 6px", verticalAlign: "top",
-                        background: uncovered ? T.redSoft : col ? col.soft : b.kind === "break" ? "#FFFDF4" : undefined,
-                      }}>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-start", minHeight: 30 }}>
+                      <td key={b.id}
+                        onClick={editable ? (e) => setPickCell(isOpen ? null : { dy, blockId: b.id, studentId: kid.id, x: e.clientX, y: e.clientY }) : undefined}
+                        style={{
+                          borderBottom: `1px solid ${T.lineSoft}`, borderLeft: `1px solid ${T.lineSoft}`,
+                          padding: "2px 5px", verticalAlign: "top", cursor: editable ? "pointer" : undefined,
+                          background: isOpen ? T.blueSoft : uncovered ? T.redSoft : col ? col.soft : b.kind === "break" ? "#FFFDF4" : undefined,
+                          outline: isOpen ? `1px solid ${T.blueLine}` : undefined,
+                        }}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 2, alignItems: "flex-start", minHeight: 20 }}>
                           {assigned.map(({ a, ai }) => {
                             const c2 = aideColor(ai);
                             const gone = aAbsent(a);
                             return (
                               <span key={a.id} style={{
-                                fontSize: 10.5, fontWeight: 700, borderRadius: 6, padding: "1px 7px",
+                                fontSize: 10, fontWeight: 700, borderRadius: 5, padding: "0px 6px",
                                 background: gone ? T.redSoft : c2.main, color: gone ? T.red : c2.on,
                                 border: `1px solid ${gone ? T.redLine : c2.main}`, whiteSpace: "nowrap",
                                 ...(gone ? { textDecoration: "line-through" } : {}),
@@ -1128,10 +1153,11 @@ export default function App() {
                             );
                           })}
                           {subj && (
-                            <span style={{ fontSize: 9, fontWeight: 600, color: isPriority(kid, subj) ? T.blueDeep : T.faint, paddingLeft: 1 }}>{subj}</span>
+                            <span style={{ fontSize: 8.5, fontWeight: 600, color: isPriority(kid, subj) ? T.blueDeep : T.faint, paddingLeft: 1 }}>{subj}</span>
                           )}
-                          {uncovered && <span style={{ fontSize: 9.5, fontWeight: 800, color: T.red }}>Needs cover</span>}
-                          {!assigned.length && !subj && b.kind === "break" && <span style={{ fontSize: 9.5, fontWeight: 600, color: T.faint }}>—</span>}
+                          {uncovered && <span style={{ fontSize: 9, fontWeight: 800, color: T.red }}>Needs cover</span>}
+                          {!assigned.length && !subj && editable && <span style={{ fontSize: 12, fontWeight: 700, color: T.faint, opacity: 0.5 }}>+</span>}
+                          {!assigned.length && !subj && !editable && b.kind === "break" && <span style={{ fontSize: 9, fontWeight: 600, color: T.faint }}>—</span>}
                         </div>
                       </td>
                     );
@@ -1146,6 +1172,51 @@ export default function App() {
             )}
           </tbody>
         </table>
+        {pickCell && pickCell.dy === dy && (() => {
+          const kid = studentById(pickCell.studentId);
+          const b = BLOCKS.find((x) => x.id === pickCell.blockId);
+          const working = aides.map((a, ai) => ({ a, ai })).filter(({ a }) => a.days?.[dy]);
+          const hasAny = aides.some((a) => basePairs(dy, pickCell.blockId, a.id).includes(pickCell.studentId));
+          const left = Math.min(pickCell.x, (typeof window !== "undefined" ? window.innerWidth : 1000) - 250);
+          const top = Math.min(pickCell.y + 6, (typeof window !== "undefined" ? window.innerHeight : 700) - 320);
+          return (
+            <>
+              <div onClick={() => setPickCell(null)} style={{ position: "fixed", inset: 0, zIndex: 60 }} />
+              <div style={{ position: "fixed", left, top, zIndex: 61, width: 234, maxHeight: 320, overflowY: "auto",
+                background: "#FFF", border: `1px solid ${T.line}`, borderRadius: 12, boxShadow: "0 12px 32px rgba(15,23,42,0.18)", padding: 8 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.ink, padding: "2px 6px 6px" }}>
+                  {kid?.name} · {b?.label}
+                  <div style={{ fontSize: 9.5, fontWeight: 600, color: T.faint }}>Who's supporting this session?</div>
+                </div>
+                {working.map(({ a, ai }) => {
+                  const c2 = aideColor(ai);
+                  const here = basePairs(dy, pickCell.blockId, a.id).includes(pickCell.studentId);
+                  const busy = basePairs(dy, pickCell.blockId, a.id).filter((id) => id !== pickCell.studentId).map((id) => studentById(id)?.name).filter(Boolean);
+                  return (
+                    <button key={a.id} onClick={() => toggleBaseAssign(dy, pickCell.blockId, a.id, pickCell.studentId)}
+                      style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", textAlign: "left", cursor: "pointer",
+                        border: `1px solid ${here ? c2.main : "transparent"}`, background: here ? c2.soft : "transparent",
+                        borderRadius: 8, padding: "5px 7px", marginBottom: 2 }}>
+                      <span style={{ width: 16, height: 16, borderRadius: 999, background: c2.main, color: c2.on, fontSize: 8, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", flex: "0 0 auto" }}>{initials(a.name)}</span>
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: T.ink }}>{a.name}</span>
+                        {busy.length > 0 && <span style={{ display: "block", fontSize: 9.5, fontWeight: 600, color: T.amber }}>● already with {busy.join(", ")}</span>}
+                      </span>
+                      {here && <span style={{ fontSize: 12, fontWeight: 800, color: c2.text }}>✓</span>}
+                    </button>
+                  );
+                })}
+                {!working.length && <div style={{ fontSize: 11, color: T.faint, padding: "4px 6px" }}>No aides work {DAY_LABEL[dy]}s.</div>}
+                <div style={{ display: "flex", gap: 6, marginTop: 4, paddingTop: 6, borderTop: `1px solid ${T.lineSoft}` }}>
+                  {hasAny && <button onClick={() => { clearBaseAssign(dy, pickCell.blockId, pickCell.studentId); }}
+                    style={{ ...S.btnGhost, padding: "3px 10px", fontSize: 11, color: T.red, borderColor: T.redLine }}>Clear</button>}
+                  <span style={{ flex: 1 }} />
+                  <button onClick={() => setPickCell(null)} style={{ ...S.btn, padding: "3px 12px", fontSize: 11 }}>Done</button>
+                </div>
+              </div>
+            </>
+          );
+        })()}
       </div>
     );
   };
@@ -1655,7 +1726,7 @@ export default function App() {
             </div>
             <div style={{ fontSize: 12, color: T.sub }} className="no-print">
               {weekBy === "student"
-                ? "Students down the side, like the paper timetable — each cell is coloured by the aide supporting them. Tap a name to open a profile. Switch to By aide to assign students."
+                ? "Students down the side, like the paper timetable. Tap any cell to pick the aide supporting them that session (only aides working that day show; a ● flags an aide already booked that session). Tap a name to open a profile."
                 : "Tap any cell to assign students. Blue subject labels = a priority subject for that student. Amber columns are breaks — assign a student there for break-time support, or they show yard duty from the Yard tab."}
             </div>
             {(wholeWeek ? DAYS : [day]).map((dy) => (
