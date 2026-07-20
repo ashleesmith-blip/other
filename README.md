@@ -7,29 +7,54 @@ everywhere else.
 
 ---
 
-# VIT Inquiry Hub — graduate-to-full-registration companion
+# VIT Inquiry Hub — graduate registration platform
 
 **File:** `VIT_Inquiry_Platform.jsx`
 
-Walks a graduate teacher through the entire VIT inquiry project — tracking, data
-collection, evidence recording and the write-up itself — modelled on a real completed
-project's structure.
+A **role-based platform** for running the whole VIT inquiry program: graduates build
+their project, mentors give feedback, and a coordinator (admin) oversees everyone
+against a shared timeline. Modelled on a real completed VIT project's structure.
 
-> **Prototype status:** single-browser demo — nothing is shared between devices.
-> Refer to students as Student A/B/C only; export regularly into your official VIT Doc.
+> **Prototype status — read this.** This is a single-browser demo: logins are
+> *simulated* and every account shares one browser's storage. It shows the full
+> platform experience (roles, oversight, feedback, timeline) but does **not** sync
+> across devices or truly separate users. A real staff rollout needs a school-approved,
+> **Australian-hosted backend with real authentication** — this UI is built to drop
+> onto one with no redesign. Refer to students as Student A/B/C only; export regularly.
+
+## Roles
+
+| Role | Home screen | Can do |
+| --- | --- | --- |
+| **Admin** (coordinator) | Program dashboard over *every* graduate — completion %, standards coverage, mentor visits, overdue milestones | Open any project (read + feedback), manage staff & mentor assignments (**Users** tab), set the program **Timeline** and due dates |
+| **Mentor** | Just the graduates assigned to them, same progress cards | Open their graduates' projects, leave **feedback** on any section or tab, read the evidence log |
+| **Graduate** | Their own inquiry workspace (the nine tabs below) | Build everything, upload & auto-file evidence, read and reply to mentor feedback |
+
+Log in from the account picker (or **Load a sample program** — admin + 2 mentors + 3
+graduates — to see it populated instantly).
+
+## The graduate workspace
 
 | Tab | What it does |
 | --- | --- |
-| **Overview** | Teacher/school/question settings, live progress against every VIT requirement (2+ observations, 3+ conversations, 3 mentor visits, baseline→summative data, all 37 descriptors…), a "suggested next step" nudge and per-section completion bars. |
-| **Write-Up** | Every prose part of Sections 1, 2, 3 and 5 as a guided form — what VIT wants, a worked-example excerpt, word count, mark-done. Parts that compile from elsewhere (focus learners, PD sessions, checkpoints) say so. |
-| **Evidence Log** | Structured capture with the exact template fields: colleague observations (2bii), professional conversations (2biii), mentor visits (4a) — each with date, VIT reg no. and a signature-obtained flag — plus PD sessions (3c) and lesson reflections (3j) with a proven prompt set. |
-| **Learners & Data** | Focus students (below / at / above / EAL) with de-identified profiles, and assessment checkpoints — baseline (pre) → weekly formative → summative (post) — scored per student, with a growth summary table. |
-| **Standards** | All 37 APST Proficient descriptors with live coverage. References typed by hand or picked up automatically from appendix annotations; VIT needs all 37 evidenced. |
-| **Appendices** | Evidence items annotated per descriptor: *"This evidence demonstrates X because…"* plus a first-person annotation — feeding the Standards coverage and the export. |
-| **Export** | The whole project compiled in official write-up order — contents page with descriptor references, Sections 1–6, every logged entry and checkpoint — copy as text or print to PDF. Gaps are flagged (`NOT YET EVIDENCED`, `SIGNATURE NEEDED`). |
+| **Overview** | School/question settings, live progress against every VIT requirement, overdue/due-soon banner, a "suggested next step" nudge and per-section bars. |
+| **Write-Up** | Every prose part of Sections 1, 2, 3 and 5 as a guided form — what VIT wants, a worked-example excerpt, word count, mark-done, **plus a mentor-feedback thread on each part**. Parts that compile from elsewhere say so. |
+| **Evidence Log** | Structured capture with the exact template fields: colleague observations (2bii), professional conversations (2biii), mentor visits (4a) — each with date, VIT reg no. and a signature flag — plus PD (3c) and lesson reflections (3j). |
+| **Learners & Data** | Focus students (below / at / above / EAL) with de-identified profiles, and assessment checkpoints — baseline → formative → summative — scored per student, with a growth summary table. |
+| **AITSL Standards** | All 37 APST Proficient descriptors with live coverage; references typed by hand or picked up automatically from appendix annotations. |
+| **Appendices** | Evidence items annotated per descriptor (*"This evidence demonstrates X because…"*), feeding Standards coverage and the export. |
+| **Import** | **Upload → auto-file.** Drop in a report, work sample, rubric, lesson plan or notes (`.docx` / `.xlsx` / `.pdf` / image / text); Claude reads it, proposes where it belongs (a write-up part, an appendix + descriptor annotations, a checkpoint, or the evidence log) and files it on confirm. |
+| **Timeline** | The shared program schedule — every milestone shown as done / due-soon / overdue against the admin's due dates. |
+| **Export** | The whole project compiled in official write-up order — contents page with descriptor references, Sections 1–6, every logged entry and checkpoint. Copy as text or print to PDF; gaps flagged (`NOT YET EVIDENCED`, `SIGNATURE NEEDED`). |
 
-Supports multiple projects in one browser (e.g. a mentor supporting several graduates)
-via the header project switcher.
+Mentors and admin see the same tabs in **review mode** — content is read-only, and a
+feedback thread appears on every section and tab.
+
+### Aesthetic
+
+Built in the Chunk & Check / Aide Timetable design language (Plus Jakarta Sans + Inter,
+soft-blue palette, rounded cards). Not yet matched to CurricHub — share a screenshot to
+retune the colours and type.
 
 ---
 
