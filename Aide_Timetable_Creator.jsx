@@ -1175,7 +1175,17 @@ export default function App() {
         {pickCell && pickCell.dy === dy && (() => {
           const kid = studentById(pickCell.studentId);
           const b = BLOCKS.find((x) => x.id === pickCell.blockId);
-          const working = aides.map((a, ai) => ({ a, ai })).filter(({ a }) => a.days?.[dy]);
+          const working = aides.map((a, ai) => ({ a, ai }))
+            .filter(({ a }) => a.days?.[dy])
+            .map((x) => {
+              const pairs = basePairs(dy, pickCell.blockId, x.a.id);
+              const here = pairs.includes(pickCell.studentId);
+              const busy = pairs.filter((id) => id !== pickCell.studentId).map((id) => studentById(id)?.name).filter(Boolean);
+              return { ...x, here, busy };
+            })
+            // free (and the current pick) first, aides already booked elsewhere sink to the bottom
+            .sort((p, q) => (p.here ? 0 : p.busy.length ? 2 : 1) - (q.here ? 0 : q.busy.length ? 2 : 1) || (p.a.name || "").localeCompare(q.a.name || ""));
+          const firstBusyIdx = working.findIndex((x) => !x.here && x.busy.length);
           const hasAny = aides.some((a) => basePairs(dy, pickCell.blockId, a.id).includes(pickCell.studentId));
           const left = Math.min(pickCell.x, (typeof window !== "undefined" ? window.innerWidth : 1000) - 250);
           const top = Math.min(pickCell.y + 6, (typeof window !== "undefined" ? window.innerHeight : 700) - 320);
@@ -1188,22 +1198,26 @@ export default function App() {
                   {kid?.name} · {b?.label}
                   <div style={{ fontSize: 9.5, fontWeight: 600, color: T.faint }}>Who's supporting this session?</div>
                 </div>
-                {working.map(({ a, ai }) => {
+                {working.map(({ a, ai, here, busy }, idx) => {
                   const c2 = aideColor(ai);
-                  const here = basePairs(dy, pickCell.blockId, a.id).includes(pickCell.studentId);
-                  const busy = basePairs(dy, pickCell.blockId, a.id).filter((id) => id !== pickCell.studentId).map((id) => studentById(id)?.name).filter(Boolean);
+                  const dim = !here && busy.length > 0;
                   return (
-                    <button key={a.id} onClick={() => toggleBaseAssign(dy, pickCell.blockId, a.id, pickCell.studentId)}
-                      style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", textAlign: "left", cursor: "pointer",
-                        border: `1px solid ${here ? c2.main : "transparent"}`, background: here ? c2.soft : "transparent",
-                        borderRadius: 8, padding: "5px 7px", marginBottom: 2 }}>
-                      <span style={{ width: 16, height: 16, borderRadius: 999, background: c2.main, color: c2.on, fontSize: 8, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", flex: "0 0 auto" }}>{initials(a.name)}</span>
-                      <span style={{ flex: 1, minWidth: 0 }}>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: T.ink }}>{a.name}</span>
-                        {busy.length > 0 && <span style={{ display: "block", fontSize: 9.5, fontWeight: 600, color: T.amber }}>● already with {busy.join(", ")}</span>}
-                      </span>
-                      {here && <span style={{ fontSize: 12, fontWeight: 800, color: c2.text }}>✓</span>}
-                    </button>
+                    <React.Fragment key={a.id}>
+                      {idx === firstBusyIdx && firstBusyIdx > 0 && (
+                        <div style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.04em", padding: "6px 7px 3px", borderTop: `1px solid ${T.lineSoft}`, marginTop: 3 }}>Already booked this session</div>
+                      )}
+                      <button onClick={() => toggleBaseAssign(dy, pickCell.blockId, a.id, pickCell.studentId)}
+                        style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", textAlign: "left", cursor: "pointer",
+                          border: `1px solid ${here ? c2.main : "transparent"}`, background: here ? c2.soft : "transparent",
+                          borderRadius: 8, padding: "5px 7px", marginBottom: 2, opacity: dim ? 0.5 : 1 }}>
+                        <span style={{ width: 16, height: 16, borderRadius: 999, background: dim ? T.faint : c2.main, color: "#FFF", fontSize: 8, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", flex: "0 0 auto" }}>{initials(a.name)}</span>
+                        <span style={{ flex: 1, minWidth: 0 }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: dim ? T.sub : T.ink }}>{a.name}</span>
+                          {busy.length > 0 && <span style={{ display: "block", fontSize: 9.5, fontWeight: 600, color: T.amber }}>● with {busy.join(", ")}</span>}
+                        </span>
+                        {here && <span style={{ fontSize: 12, fontWeight: 800, color: c2.text }}>✓</span>}
+                      </button>
+                    </React.Fragment>
                   );
                 })}
                 {!working.length && <div style={{ fontSize: 11, color: T.faint, padding: "4px 6px" }}>No aides work {DAY_LABEL[dy]}s.</div>}
