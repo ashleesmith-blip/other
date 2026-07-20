@@ -808,9 +808,16 @@ export default function App() {
     setImpBusy(true); setImpErr(""); setImpPreview(null);
     try {
       const prompt = impMode === "preinfo" ? PREINFO_PROMPT : impMode === "classtt" ? CLASSTT_PROMPT : WEEKTT_PROMPT;
-      const out = await askClaude([{ role: "user", content: `${prompt}\n\n--- SOURCE ---\n${text.slice(0, 40000)}` }], 4000);
+      const maxTokens = impMode === "weektt" ? 8000 : 4000;
+      const out = await askClaude([{ role: "user", content: `${prompt}\n\n--- SOURCE ---\n${text.slice(0, 40000)}` }], maxTokens);
       setImpPreview(parseJSON(out));
-    } catch (e) { setImpErr(friendlyErr(e, "Couldn't parse that — try cleaner text or a different file.")); }
+    } catch (e) {
+      const msg = e?.message || "";
+      const err = /JSON/.test(msg)
+        ? "Response was incomplete — try a smaller or cleaner data file, or break it into parts."
+        : friendlyErr(e, "Couldn't parse that — try cleaner text or a different file.");
+      setImpErr(err);
+    }
     setImpBusy(false);
   };
   const onImportFile = async (file) => {
