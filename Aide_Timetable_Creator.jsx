@@ -1351,7 +1351,7 @@ export default function App() {
 
         {/* ================= TEAM ================= */}
         {role === "admin" && view === "team" && (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 22, alignItems: "start" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
             {/* aides */}
             <div style={S.card}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
@@ -1369,27 +1369,27 @@ export default function App() {
                   to see the tool working.
                 </div>
               )}
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {aides.map((a, ai) => {
                   const col = aideColor(ai);
                   const open = editAide === a.id;
                   const mates = students.filter((s) => (s.preferredAides || []).includes(a.id));
                   return (
-                    <div key={a.id} style={{ border: `1px solid ${open ? col.line : T.lineSoft}`, borderLeft: `4px solid ${col.main}`, borderRadius: 12, padding: "10px 12px", background: open ? col.soft : "#FCFDFE" }}>
+                    <div key={a.id} style={{ border: `1px solid ${open ? col.line : T.lineSoft}`, borderLeft: `4px solid ${col.main}`, borderRadius: 10, padding: open ? "8px 11px" : "6px 11px", background: open ? col.soft : "#FCFDFE" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ width: 26, height: 26, borderRadius: 999, background: col.main, color: col.on, fontSize: 11, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{initials(a.name)}</span>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontFamily: F.display, fontWeight: 700, fontSize: 13.5 }}>{a.name || "Unnamed aide"}</div>
-                          <div style={{ fontSize: 11, color: T.sub }}>
-                            {DAYS.filter((d) => a.days?.[d]).join(" · ") || "No days set"}
+                        <span style={{ width: 22, height: 22, borderRadius: 999, background: col.main, color: col.on, fontSize: 9.5, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", flex: "0 0 auto" }}>{initials(a.name)}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                            <span style={{ fontFamily: F.display, fontWeight: 700, fontSize: 13 }}>{a.name || "Unnamed aide"}</span>
+                            <span style={{ fontSize: 10.5, color: T.faint }}>{DAYS.filter((d) => a.days?.[d]).join(" · ") || "No days set"}</span>
                           </div>
+                          {!open && mates.length > 0 && (
+                            <div style={{ fontSize: 10.5, color: T.sub, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Works well with: <b>{mates.map((s) => s.name).join(", ")}</b></div>
+                          )}
                         </div>
                         <button style={{ ...S.btnGhost, padding: "3px 10px", fontSize: 11 }} onClick={() => setEditAide(open ? null : a.id)}>{open ? "Done" : "Edit"}</button>
                         <button style={{ ...S.btnGhost, padding: "3px 8px", fontSize: 11, color: T.red, borderColor: T.redLine }} onClick={() => removeAide(a.id)}>✕</button>
                       </div>
-                      {!open && mates.length > 0 && (
-                        <div style={{ fontSize: 11, color: T.sub, marginTop: 6 }}>Works well with: <b>{mates.map((s) => s.name).join(", ")}</b></div>
-                      )}
                       {open && (
                         <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
                           <div>
@@ -1428,21 +1428,21 @@ export default function App() {
                 <button style={{ ...S.btn, padding: "6px 14px", fontSize: 12 }} onClick={addStudent}>+ Student</button>
               </div>
               {!students.length && <div style={{ fontSize: 13, color: T.sub }}>No students yet — add each student who receives aide support.</div>}
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {students.map((st) => {
                   const open = editStudent === st.id;
                   return (
-                    <div key={st.id} style={{ border: `1px solid ${open ? T.blueLine : T.lineSoft}`, borderRadius: 12, padding: "10px 12px", background: open ? T.blueSoft : "#FCFDFE" }}>
+                    <div key={st.id} style={{ border: `1px solid ${open ? T.blueLine : T.lineSoft}`, borderRadius: 10, padding: open ? "8px 11px" : "6px 11px", background: open ? T.blueSoft : "#FCFDFE" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontFamily: F.display, fontWeight: 700, fontSize: 13.5 }}>
-                            {st.name || "Unnamed student"}
-                            {st.cls && <span style={{ color: T.faint, fontWeight: 600, marginLeft: 6, fontSize: 12 }}>{st.cls}</span>}
-                          </div>
-                          <div style={{ fontSize: 11, color: T.sub }}>
-                            {st.idealPerDay} × 50-min sessions/day ideal
-                            {st.fundedHrs != null && ` · funded ${st.fundedHrs}h/wk`}
-                            {(st.prioritySubjects || []).length > 0 && ` · priority: ${st.prioritySubjects.join(", ")}`}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: "flex", alignItems: "baseline", gap: 6, flexWrap: "wrap" }}>
+                            <span style={{ fontFamily: F.display, fontWeight: 700, fontSize: 13 }}>{st.name || "Unnamed student"}</span>
+                            {st.cls && <span style={{ color: T.faint, fontWeight: 600, fontSize: 11 }}>{st.cls}</span>}
+                            <span style={{ fontSize: 10.5, color: T.faint }}>
+                              {st.idealPerDay}×/day
+                              {st.fundedHrs != null && ` · ${st.fundedHrs}h`}
+                              {(st.prioritySubjects || []).length > 0 && ` · ${st.prioritySubjects.join(", ")}`}
+                            </span>
                           </div>
                         </div>
                         <button style={{ ...S.btnGhost, padding: "3px 10px", fontSize: 11 }} onClick={() => setProfileId(st.id)}>Profile</button>
