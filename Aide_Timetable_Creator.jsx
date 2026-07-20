@@ -370,6 +370,7 @@ export default function App() {
   const [view, setView] = useState("team");        // team | classes | week | today | yard | hours | insights | import | settings
   const [day, setDay] = useState("Mon");           // week + today + yard selected day — also stands in for "today"
   const [wholeWeek, setWholeWeek] = useState(false);
+  const [weekBy, setWeekBy] = useState("student");  // "student" (rows = students, coloured by aide) | "aide" (rows = aides)
   const [editCell, setEditCell] = useState(null);  // { day, blockId, aideId, mode:"base"|"today" }
   const [editAide, setEditAide] = useState(null);  // aide id being edited
   const [editStudent, setEditStudent] = useState(null);
@@ -471,6 +472,8 @@ export default function App() {
   const studentById = (id) => students.find((s) => s.id === id);
   const aideIdx = (id) => aides.findIndex((a) => a.id === id);
   const knownSubjects = [...new Set(Object.values(classes).flatMap((c) => DAYS.flatMap((d) => c.tt?.[d] || [])))].filter(Boolean).sort();
+  /* subjects from one class's own timetable — used to suggest a student's priority subjects */
+  const subjectsForClass = (cls) => [...new Set(DAYS.flatMap((d) => classes[cls]?.tt?.[d] || []))].filter(Boolean).sort();
 
   const subjectFor = (st, dy, sessionIdx) => (classes[st?.cls]?.tt?.[dy]?.[sessionIdx] || "").trim();
   const isPriority = (st, subj) => !!subj && (st.prioritySubjects || []).some((p) => subj.toLowerCase().includes(p.toLowerCase()) || p.toLowerCase().includes(subj.toLowerCase()));
@@ -1059,6 +1062,94 @@ export default function App() {
     );
   };
 
+  /* one day, students down the side (like the paper timetable) — each cell coloured by the aide supporting them */
+  const StudentGrid = ({ dy, mode }) => {
+    const ov = ovFor(dy);
+    const today = mode === "today";
+    const kids = [...students].sort((a, b) => (a.cls || "").localeCompare(b.cls || "") || (a.name || "").localeCompare(b.name || ""));
+    return (
+      <div style={{ overflowX: "auto", border: `1px solid ${T.line}`, borderRadius: 14, background: T.card }}>
+        <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 900 }}>
+          <thead>
+            <tr>
+              <th style={{ padding: "10px 12px", textAlign: "left", fontFamily: F.body, fontSize: 11, fontWeight: 700, color: T.faint, borderBottom: `1px solid ${T.line}`, minWidth: 140 }}>
+                {DAY_LABEL[dy]}
+              </th>
+              {BLOCKS.map((b) => (
+                <th key={b.id} style={{
+                  padding: "8px 8px", textAlign: "center", fontFamily: F.body, fontSize: 11, fontWeight: 700,
+                  color: b.kind === "break" ? T.amber : T.ink, borderBottom: `1px solid ${T.line}`,
+                  background: b.kind === "break" ? T.amberSoft : undefined, minWidth: b.kind === "break" ? 86 : 104,
+                }}>
+                  {b.label}
+                  <div style={{ fontSize: 9.5, fontWeight: 600, color: T.faint }}>{b.time}</div>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {kids.map((kid) => {
+              const kidAbsent = today && ov.absentS.includes(kid.id);
+              return (
+                <tr key={kid.id}>
+                  <td style={{ padding: "8px 12px", borderBottom: `1px solid ${T.lineSoft}`, background: kidAbsent ? T.redSoft : undefined }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }} onClick={() => setProfileId(kid.id)}>
+                      <div style={{ fontFamily: F.display, fontWeight: 700, fontSize: 12.5, ...(kidAbsent ? { textDecoration: "line-through", color: T.red } : {}) }}>{kid.name || "?"}</div>
+                      <span style={{ fontSize: 10.5, color: T.faint, fontWeight: 600 }}>{kid.cls}</span>
+                    </div>
+                    {kidAbsent && <div style={{ fontSize: 10, fontWeight: 700, color: T.red }}>Absent today</div>}
+                  </td>
+                  {BLOCKS.map((b) => {
+                    const si = SESSIONS.findIndex((s) => s.id === b.id);
+                    const subj = b.kind === "session" ? subjectFor(kid, dy, si) : "";
+                    const assigned = aides.map((a, ai) => ({ a, ai }))
+                      .filter(({ a }) => a.days?.[dy] && (today ? effPairs(dy, b.id, a.id) : basePairs(dy, b.id, a.id)).includes(kid.id));
+                    const aAbsent = (a) => today && ov.absentA.includes(a.id);
+                    const first = assigned[0];
+                    const col = first ? aideColor(first.ai) : null;
+                    const uncovered = today && assigned.length > 0 && assigned.every(({ a }) => aAbsent(a)) && !kidAbsent;
+                    return (
+                      <td key={b.id} style={{
+                        borderBottom: `1px solid ${T.lineSoft}`, borderLeft: `1px solid ${T.lineSoft}`,
+                        padding: "6px 6px", verticalAlign: "top",
+                        background: uncovered ? T.redSoft : col ? col.soft : b.kind === "break" ? "#FFFDF4" : undefined,
+                      }}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-start", minHeight: 30 }}>
+                          {assigned.map(({ a, ai }) => {
+                            const c2 = aideColor(ai);
+                            const gone = aAbsent(a);
+                            return (
+                              <span key={a.id} style={{
+                                fontSize: 10.5, fontWeight: 700, borderRadius: 6, padding: "1px 7px",
+                                background: gone ? T.redSoft : c2.main, color: gone ? T.red : c2.on,
+                                border: `1px solid ${gone ? T.redLine : c2.main}`, whiteSpace: "nowrap",
+                                ...(gone ? { textDecoration: "line-through" } : {}),
+                              }}>{a.name}</span>
+                            );
+                          })}
+                          {subj && (
+                            <span style={{ fontSize: 9, fontWeight: 600, color: isPriority(kid, subj) ? T.blueDeep : T.faint, paddingLeft: 1 }}>{subj}</span>
+                          )}
+                          {uncovered && <span style={{ fontSize: 9.5, fontWeight: 800, color: T.red }}>Needs cover</span>}
+                          {!assigned.length && !subj && b.kind === "break" && <span style={{ fontSize: 9.5, fontWeight: 600, color: T.faint }}>—</span>}
+                        </div>
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+            {!students.length && (
+              <tr><td colSpan={BLOCKS.length + 1} style={{ padding: 24, textAlign: "center", color: T.faint, fontSize: 13 }}>
+                Add students in the Team tab first.
+              </td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
+
   /* ============================ LOGIN GATE ============================ */
   if (!role) return (
     <div style={{ minHeight: "100vh", background: T.bg, fontFamily: F.body, color: T.ink }}>
@@ -1387,9 +1478,10 @@ export default function App() {
                               <input style={S.input} value={(st.prioritySubjects || []).join(", ")}
                                 onChange={(e) => patchStudent(st.id, { prioritySubjects: e.target.value.split(",").map((x) => x.trim()).filter(Boolean) })}
                                 placeholder="Reading, Maths, Assembly" />
-                              {knownSubjects.length > 0 && (
+                              {(() => { const clsSubs = subjectsForClass(st.cls); return clsSubs.length > 0 && (
                                 <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 6 }}>
-                                  {knownSubjects.slice(0, 12).map((sub) => {
+                                  <span style={{ fontSize: 10, color: T.faint, fontWeight: 600, width: "100%" }}>From {st.cls || "this class"}'s timetable:</span>
+                                  {clsSubs.slice(0, 16).map((sub) => {
                                     const on = (st.prioritySubjects || []).some((p) => p.toLowerCase() === sub.toLowerCase());
                                     return (
                                       <button key={sub} onClick={() => patchStudent(st.id, {
@@ -1402,7 +1494,7 @@ export default function App() {
                                     );
                                   })}
                                 </div>
-                              )}
+                              ); })()}
                             </div>
                           </div>
                           <div>
@@ -1498,22 +1590,28 @@ export default function App() {
                           <input style={{ ...S.input, width: 70 }} value={c.year || ""} onChange={(e) => setClasses((cs) => ({ ...cs, [name]: { ...c, year: e.target.value } }))} placeholder="3" />
                         </div>
                         <div style={{ overflowX: "auto", border: `1px solid ${T.line}`, borderRadius: 12 }}>
-                          <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 700 }}>
+                          <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 820 }}>
                             <thead>
                               <tr>
-                                <th style={{ padding: "8px 10px", fontSize: 11, fontWeight: 700, color: T.faint, textAlign: "left", borderBottom: `1px solid ${T.line}` }}></th>
-                                {DAYS.map((d) => <th key={d} style={{ padding: "8px 6px", fontSize: 11, fontWeight: 700, color: T.ink, borderBottom: `1px solid ${T.line}` }}>{DAY_LABEL[d]}</th>)}
+                                <th style={{ padding: "8px 10px", fontSize: 11, fontWeight: 700, color: T.faint, textAlign: "left", borderBottom: `1px solid ${T.line}`, minWidth: 96 }}></th>
+                                {BLOCKS.map((b) => (
+                                  <th key={b.id} style={{ padding: "8px 6px", fontSize: 10.5, fontWeight: 700, textAlign: "center",
+                                    color: b.kind === "break" ? T.amber : T.ink, background: b.kind === "break" ? T.amberSoft : undefined,
+                                    borderBottom: `1px solid ${T.line}`, minWidth: b.kind === "break" ? 48 : 100 }}>
+                                    {b.label}<div style={{ fontSize: 9, fontWeight: 600, color: T.faint }}>{b.time}</div>
+                                  </th>
+                                ))}
                               </tr>
                             </thead>
                             <tbody>
-                              {SESSIONS.map((s, i) => (
-                                <React.Fragment key={s.id}>
-                                  {s.id === "s3" && <tr><td colSpan={6} style={{ background: T.amberSoft, color: T.amber, fontSize: 10, fontWeight: 700, padding: "3px 10px", textAlign: "center" }}>RECESS</td></tr>}
-                                  {s.id === "s5" && <tr><td colSpan={6} style={{ background: T.amberSoft, color: T.amber, fontSize: 10, fontWeight: 700, padding: "3px 10px", textAlign: "center" }}>LUNCH</td></tr>}
-                                  <tr>
-                                    <td style={{ padding: "5px 10px", fontSize: 11, fontWeight: 700, color: T.faint, whiteSpace: "nowrap" }}>{s.label}<div style={{ fontSize: 9, fontWeight: 600 }}>{s.time}</div></td>
-                                    {DAYS.map((d) => (
-                                      <td key={d} style={{ padding: 3 }}>
+                              {DAYS.map((d) => (
+                                <tr key={d}>
+                                  <td style={{ padding: "5px 10px", fontSize: 12, fontWeight: 700, color: T.ink, whiteSpace: "nowrap", borderBottom: `1px solid ${T.lineSoft}` }}>{DAY_LABEL[d]}</td>
+                                  {BLOCKS.map((b) => {
+                                    if (b.kind === "break") return <td key={b.id} style={{ background: "#FFFDF4", borderBottom: `1px solid ${T.lineSoft}`, borderLeft: `1px solid ${T.lineSoft}` }} />;
+                                    const i = SESSIONS.findIndex((s) => s.id === b.id);
+                                    return (
+                                      <td key={b.id} style={{ padding: 3, borderBottom: `1px solid ${T.lineSoft}`, borderLeft: `1px solid ${T.lineSoft}` }}>
                                         <input style={{ ...S.input, padding: "6px 8px", fontSize: 12, borderRadius: 8 }}
                                           value={c.tt?.[d]?.[i] || ""}
                                           onChange={(e) => setClasses((cs) => {
@@ -1522,9 +1620,9 @@ export default function App() {
                                             return { ...cs, [name]: { ...c, tt } };
                                           })} />
                                       </td>
-                                    ))}
-                                  </tr>
-                                </React.Fragment>
+                                    );
+                                  })}
+                                </tr>
                               ))}
                             </tbody>
                           </table>
@@ -1544,18 +1642,26 @@ export default function App() {
             <div className="no-print" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               {!wholeWeek && <DayPills value={day} onChange={setDay} />}
               <span style={{ flex: 1 }} />
+              <div style={{ display: "inline-flex", border: `1px solid ${T.line}`, borderRadius: 999, overflow: "hidden" }}>
+                {[["student", "By student"], ["aide", "By aide"]].map(([k, lab]) => (
+                  <button key={k} onClick={() => setWeekBy(k)}
+                    style={{ border: "none", padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer",
+                      background: weekBy === k ? T.ink : "transparent", color: weekBy === k ? "#FFF" : T.sub }}>{lab}</button>
+                ))}
+              </div>
               <Toggle on={wholeWeek} onClick={() => setWholeWeek(!wholeWeek)}>Whole week</Toggle>
               <button style={S.btnGhost} onClick={() => window.print()}>Print</button>
               <button style={S.btn} onClick={suggestWeek}>✦ Suggest week</button>
             </div>
             <div style={{ fontSize: 12, color: T.sub }} className="no-print">
-              Tap any cell to assign students. Blue subject labels = a priority subject for that student.
-              Amber columns are breaks — assign a student there for break-time support, or they show yard duty from the Yard tab.
+              {weekBy === "student"
+                ? "Students down the side, like the paper timetable — each cell is coloured by the aide supporting them. Tap a name to open a profile. Switch to By aide to assign students."
+                : "Tap any cell to assign students. Blue subject labels = a priority subject for that student. Amber columns are breaks — assign a student there for break-time support, or they show yard duty from the Yard tab."}
             </div>
             {(wholeWeek ? DAYS : [day]).map((dy) => (
               <div key={dy}>
                 {wholeWeek && <div style={{ fontFamily: F.display, fontWeight: 800, fontSize: 16, margin: "8px 0 6px" }}>{DAY_LABEL[dy]}</div>}
-                <DayGrid dy={dy} mode="base" />
+                {weekBy === "student" ? <StudentGrid dy={dy} mode="base" /> : <DayGrid dy={dy} mode="base" />}
               </div>
             ))}
             {/* per-student week summary strip */}
