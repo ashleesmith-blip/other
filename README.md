@@ -20,13 +20,20 @@ any modern browser — no install, no build step, no server.
    handwriting, science investigation). Choose a 3-point or 4-point rating scale, or let
    the analysis use the levels written in your own rubric. Optionally add year level,
    subject/task, and extra context (e.g. "EAL learner, completed independently").
-2. **Add the work sample** — photos (JPG/PNG/WebP/GIF) or PDFs, multiple pages
-   supported, with drag-and-drop and a take-a-photo button on phones/tablets. Photos are
-   downscaled in the browser before sending. Word docs: export as PDF first.
+2. **Add the work sample** — photos (JPG/PNG/WebP/GIF), PDFs, or **short videos**,
+   multiple files supported, with drag-and-drop plus take-a-photo / record-a-video
+   buttons on phones and tablets. Photos are downscaled in the browser before sending.
+   Word docs: export as PDF first.
+   - **Video:** still frames are sampled from the clip *in your browser* and analysed in
+     time order — suited to performance tasks you can see (PE skills, handwriting
+     process, science practicals, art technique). Audio/speech is **not** analysed. Keep
+     clips short (~3 min or less); MP4 (H.264) decodes most reliably.
 3. **Analyse** — the app calls Claude (vision + PDF understanding, structured JSON
-   output) and renders: a per-criterion card with a colour-coded rating, **specific
-   evidence quoted from the work**, and feedback; an overall summary; strengths; areas
-   for growth; concrete next-steps for teaching; and a short warm comment written to the
+   output) and renders, per criterion: a colour-coded rating, **specific evidence quoted
+   from the work**, a **"Why this rating" justification** that links the evidence to the
+   wording of the criterion or rubric level descriptor (moderation-style: why this level
+   and not the one above/below), and feedback. Plus an overall summary, strengths, areas
+   for growth, concrete next-steps for teaching, and a short warm comment written to the
    student. Results can be copied as text or printed / saved as PDF.
 
 ## Setup

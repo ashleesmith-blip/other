@@ -227,6 +227,20 @@
     margin: 8px 0;
     font-style: italic;
   }
+  .crit-card .sub-label {
+    font-size: .7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: var(--ink-soft);
+    margin: 10px 0 2px;
+  }
+  .crit-card .justification {
+    font-size: .87rem;
+    background: var(--blue-soft);
+    border-radius: 6px;
+    padding: 8px 10px;
+  }
   .crit-card .feedback { font-size: .9rem; }
   .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 20px; }
   @media (max-width: 700px) { .two-col { grid-template-columns: 1fr; } }
@@ -318,17 +332,20 @@ Spelling of common words is accurate"></textarea>
     <!-- Step 2: Work sample -->
     <section class="panel">
       <h2><span class="step">2</span> Add the work sample</h2>
-      <p class="hint">Photos (JPG, PNG, WebP, GIF) or PDFs — add multiple pages if needed. Word documents: save/export as PDF first. Photos are resized in your browser before sending.</p>
+      <p class="hint">Photos (JPG, PNG, WebP, GIF), PDFs, or short videos — add multiple files if needed. Word documents: save/export as PDF first. Photos are resized in your browser before sending.</p>
+      <p class="hint">🎬 <strong>Videos:</strong> still frames are sampled from the video in your browser and analysed in sequence — good for performance tasks you can <em>see</em> (PE skills, handwriting process, science practicals, art technique). <strong>Audio/speech is not analysed.</strong> Best under ~3 minutes; MP4 works most reliably.</p>
 
       <div class="drop" id="drop">
         <strong>Click to choose files</strong> or drag &amp; drop here<br>
-        <span style="font-size:.82rem">You can also take a photo on a phone or tablet</span>
+        <span style="font-size:.82rem">You can also take a photo or video on a phone or tablet</span>
       </div>
-      <input type="file" id="file-input" accept="image/*,application/pdf" multiple hidden>
+      <input type="file" id="file-input" accept="image/*,video/*,application/pdf" multiple hidden>
       <div class="row" style="margin-top:10px">
         <button class="ghost small" id="btn-camera">📷 Take a photo</button>
+        <button class="ghost small" id="btn-video">🎬 Record a video</button>
       </div>
       <input type="file" id="camera-input" accept="image/*" capture="environment" hidden>
+      <input type="file" id="video-input" accept="video/*" capture="environment" hidden>
 
       <div class="file-list" id="file-list"></div>
     </section>
@@ -448,8 +465,10 @@ const MAX_PDF_BYTES = 28 * 1024 * 1024; // stay under the 32MB request limit
 
 $("drop").addEventListener("click", () => $("file-input").click());
 $("btn-camera").addEventListener("click", () => $("camera-input").click());
+$("btn-video").addEventListener("click", () => $("video-input").click());
 $("file-input").addEventListener("change", (e) => addFiles(e.target.files));
 $("camera-input").addEventListener("change", (e) => addFiles(e.target.files));
+$("video-input").addEventListener("change", (e) => addFiles(e.target.files));
 
 ["dragover", "dragenter"].forEach((ev) =>
   $("drop").addEventListener(ev, (e) => { e.preventDefault(); $("drop").classList.add("dragover"); }));
@@ -470,8 +489,16 @@ async function addFiles(fileList) {
       } else if (f.type.startsWith("image/")) {
         const { base64, mediaType, bytes, thumbUrl } = await processImage(f);
         files.push({ name: f.name, kind: "image", mediaType, base64, sizeLabel: sizeLabel(bytes), thumbUrl });
+      } else if (f.type.startsWith("video/") || /\.(mp4|mov|webm|m4v)$/i.test(f.name)) {
+        setStatus(`Sampling frames from "${f.name}"…`, false, true);
+        const { frames, durationLabel, thumbUrl } = await processVideo(f);
+        files.push({
+          name: f.name, kind: "video", frames, thumbUrl,
+          sizeLabel: `video · ${durationLabel} · ${frames.length} frames sampled`,
+        });
+        setStatus("");
       } else {
-        setStatus(`"${f.name}" isn't a supported type — use a photo or PDF. (Word docs: save as PDF first.)`, true);
+        setStatus(`"${f.name}" isn't a supported type — use a photo, PDF, or video. (Word docs: save as PDF first.)`, true);
         continue;
       }
     } catch (err) {
@@ -524,6 +551,71 @@ function processImage(file) {
   });
 }
 
+/* ---- Video → sampled frames (in-browser; audio is not captured) ---- */
+const MAX_FRAMES = 16;
+const MIN_FRAMES = 4;
+const FRAME_EDGE = 1280; // px long edge per frame — keeps token cost sane
+
+function processVideo(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const video = document.createElement("video");
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = "metadata";
+    const fail = (msg) => { URL.revokeObjectURL(url); reject(new Error(msg)); };
+
+    video.onerror = () => fail("this browser can't decode the video — try re-exporting as MP4 (H.264)");
+    video.onloadedmetadata = async () => {
+      const duration = video.duration;
+      if (!isFinite(duration) || duration <= 0) return fail("couldn't read the video's length — try MP4 format");
+
+      // ~1 frame every 4s, clamped to [MIN_FRAMES, MAX_FRAMES]
+      const n = Math.max(MIN_FRAMES, Math.min(MAX_FRAMES, Math.ceil(duration / 4)));
+      const scale = Math.min(1, FRAME_EDGE / Math.max(video.videoWidth, video.videoHeight));
+      const w = Math.max(1, Math.round(video.videoWidth * scale));
+      const h = Math.max(1, Math.round(video.videoHeight * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext("2d");
+
+      const seekTo = (t) => new Promise((res, rej) => {
+        const timer = setTimeout(() => rej(new Error("timed out reading the video — try a shorter clip or MP4 format")), 10000);
+        video.onseeked = () => { clearTimeout(timer); res(); };
+        video.onerror = () => { clearTimeout(timer); rej(new Error("video decode error while reading frames")); };
+        video.currentTime = t;
+      });
+
+      try {
+        const frames = [];
+        for (let i = 0; i < n; i++) {
+          // spread frames across the clip, avoiding the very first/last instant
+          const t = duration * (i + 0.5) / n;
+          await seekTo(Math.min(t, Math.max(0, duration - 0.1)));
+          ctx.drawImage(video, 0, 0, w, h);
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
+          frames.push({ time: t, base64: dataUrl.split(",")[1], thumbUrl: dataUrl });
+        }
+        URL.revokeObjectURL(url);
+        resolve({
+          frames,
+          durationLabel: timeLabel(duration),
+          thumbUrl: frames[0].thumbUrl,
+        });
+      } catch (err) {
+        fail(err.message);
+      }
+    };
+    video.src = url;
+  });
+}
+
+function timeLabel(seconds) {
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
 function sizeLabel(bytes) {
   return bytes > 1024 * 1024 ? (bytes / 1048576).toFixed(1) + " MB" : Math.round(bytes / 1024) + " KB";
 }
@@ -534,9 +626,9 @@ function renderFileList() {
   files.forEach((f, i) => {
     const item = document.createElement("div");
     item.className = "file-item";
-    const preview = f.kind === "image"
-      ? `<img class="thumb" src="${f.thumbUrl}" alt="">`
-      : `<div class="pdf-icon">PDF</div>`;
+    const preview = f.kind === "pdf"
+      ? `<div class="pdf-icon">PDF</div>`
+      : `<img class="thumb" src="${f.thumbUrl}" alt="">`;
     item.innerHTML = `${preview}
       <div class="meta"><div class="name"></div><div class="size">${f.sizeLabel}</div></div>
       <button title="Remove">✕</button>`;
@@ -586,9 +678,10 @@ function buildSchema(scaleChoice) {
             criterion: { type: "string" },
             rating: ratingProp,
             evidence: { type: "string", description: "Specific evidence quoted or described from the work sample" },
+            justification: { type: "string", description: "2-3 sentence justification of the rating: explicitly connect the quoted/described evidence to the wording of the criterion or rubric level descriptor, and explain why the work meets this level and not the one above or below" },
             feedback: { type: "string", description: "Constructive, specific feedback for this criterion" },
           },
-          required: ["criterion", "rating", "evidence", "feedback"],
+          required: ["criterion", "rating", "evidence", "justification", "feedback"],
           additionalProperties: false,
         },
       },
@@ -635,6 +728,8 @@ ${scaleText}
 Guidelines:
 - Address every distinct criterion in the criteria/rubric above — one entry per criterion in criteria_results.
 - Ground every rating in specific evidence you can see in the work sample; quote the student's actual words or describe the specific working where possible.
+- For each criterion, the justification must work like assessment moderation: cite the evidence, connect it to the wording of the criterion (or the rubric's level descriptor), and briefly explain why the work sits at this level rather than the level above or below. Never justify by restating the rating.
+- If some inputs are video frames (sequential stills sampled from a video), treat them as one continuous performance in time order; note that any audio/spoken content is not available to you and must not be guessed at.
 - Judge against age-appropriate expectations${year ? ` for ${year}` : ""}, not adult standards.
 - Be honest but constructive: name what the student did well before what needs work.
 - If part of the sample is illegible or ambiguous, say so in the evidence rather than guessing.
@@ -654,6 +749,15 @@ async function analyse() {
   for (const f of files) {
     if (f.kind === "image") {
       content.push({ type: "image", source: { type: "base64", media_type: f.mediaType, data: f.base64 } });
+    } else if (f.kind === "video") {
+      content.push({
+        type: "text",
+        text: `The following ${f.frames.length} images are still frames sampled in time order from a video ("${f.name}", duration ${f.sizeLabel.split(" · ")[1]}). Treat them as one continuous performance. Audio is not available.`,
+      });
+      for (const fr of f.frames) {
+        content.push({ type: "text", text: `Frame at ${timeLabel(fr.time)}:` });
+        content.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: fr.base64 } });
+      }
     } else {
       content.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: f.base64 } });
     }
@@ -768,7 +872,9 @@ function renderResults(res) {
           <h3>${escapeHtml(c.criterion)}</h3>
           <span class="badge ${ratingClass(c.rating, scaleChoice)}">${escapeHtml(c.rating)}</span>
         </div>
-        ${c.evidence ? `<div class="evidence">${escapeHtml(c.evidence)}</div>` : ""}
+        ${c.evidence ? `<div class="sub-label">Evidence</div><div class="evidence">${escapeHtml(c.evidence)}</div>` : ""}
+        ${c.justification ? `<div class="sub-label">Why this rating</div><div class="justification">${escapeHtml(c.justification)}</div>` : ""}
+        <div class="sub-label">Feedback</div>
         <div class="feedback">${escapeHtml(c.feedback)}</div>
       </div>`);
   }
@@ -808,6 +914,7 @@ $("btn-copy").addEventListener("click", async () => {
   for (const c of r.criteria_results || []) {
     lines.push(`- ${c.criterion}: ${c.rating}`);
     if (c.evidence) lines.push(`  Evidence: ${c.evidence}`);
+    if (c.justification) lines.push(`  Why this rating: ${c.justification}`);
     lines.push(`  Feedback: ${c.feedback}`);
   }
   lines.push("");
