@@ -25,9 +25,24 @@ any modern browser — no install, no build step, no server.
    buttons on phones and tablets. Photos are downscaled in the browser before sending.
    Word docs: export as PDF first.
    - **Video:** still frames are sampled from the clip *in your browser* and analysed in
-     time order — suited to performance tasks you can see (PE skills, handwriting
-     process, science practicals, art technique). Audio/speech is **not** analysed. Keep
-     clips short (~3 min or less); MP4 (H.264) decodes most reliably.
+     time order, and speech is **transcribed on-device** with a local Whisper model
+     (English; downloads once, ~40–80 MB; audio never leaves the computer — can be
+     switched off or set to higher accuracy). The analysis then identifies **key
+     moments** against your criteria, each with a timestamp, what happened/was said,
+     and what it shows about the student. Timestamps are also cited in evidence and
+     justifications. Keep clips short (~3 min or less); MP4 (H.264) decodes most
+     reliably.
+   - **Share for colleague feedback:** one click builds a self-contained **review pack**
+     (a single HTML file with the work sample, video frames, transcript, criteria, and a
+     structured feedback form). Send it to a colleague however you normally share files —
+     they open it in any browser (no API key needed), write their feedback, and copy or
+     download it to send back. Paste their feedback into "Extra context" to include it
+     in the analysis. There is deliberately **no server or account system** — sharing is
+     a file you control.
+   - **Student self-assessment (optional step 3):** builds a rating + comment row per
+     criterion for the student to complete, plus a reflection box. The analysis rates
+     independently, then responds to the student's self-assessment — where their
+     judgement matched, where it differed and why.
 3. **Analyse** — the app calls Claude (vision + PDF understanding, structured JSON
    output) and renders, per criterion: a colour-coded rating, **specific evidence quoted
    from the work**, a **"Why this rating" justification** that links the evidence to the

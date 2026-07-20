@@ -256,6 +256,34 @@
   .next-steps li { margin-bottom: 5px; }
   .student-comment { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 20px; }
   .student-comment h3 { font-size: .9rem; margin-bottom: 8px; }
+  .moments { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 20px; }
+  .moments h3 { font-size: .9rem; margin-bottom: 10px; }
+  .moment { display: flex; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .moment:first-of-type { border-top: none; }
+  .moment .ts {
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: .8rem;
+    font-weight: 700;
+    background: var(--blue-soft);
+    color: var(--blue);
+    border-radius: 6px;
+    padding: 3px 8px;
+    height: fit-content;
+    white-space: nowrap;
+  }
+  .moment .m-crit { font-size: .76rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--accent); margin-bottom: 2px; }
+  .moment .m-what { font-size: .9rem; margin-bottom: 3px; }
+  .moment .m-analysis { font-size: .87rem; color: var(--ink-soft); }
+  details.transcript { margin-bottom: 20px; border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 16px; }
+  details.transcript summary { cursor: pointer; font-size: .9rem; font-weight: 600; }
+  details.transcript .seg { font-size: .87rem; padding: 3px 0; }
+  details.transcript .seg .ts { color: var(--blue); font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .78rem; margin-right: 8px; }
+  .sa-row { display: grid; grid-template-columns: minmax(0,2fr) minmax(120px,.8fr) minmax(0,1.4fr); gap: 8px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); }
+  .sa-row:first-child { border-top: none; }
+  .sa-row .sa-crit { font-size: .88rem; }
+  @media (max-width: 700px) { .sa-row { grid-template-columns: 1fr; } }
+  .sa-compare { background: var(--amber-soft); border: 1px solid #ecd9bd; border-radius: var(--radius); padding: 14px 16px; margin-bottom: 20px; }
+  .sa-compare h3 { font-size: .9rem; color: var(--amber); margin-bottom: 8px; }
   .disclaimer { font-size: .78rem; color: var(--ink-soft); margin-top: 6px; }
 
   /* API key modal */
@@ -333,7 +361,14 @@ Spelling of common words is accurate"></textarea>
     <section class="panel">
       <h2><span class="step">2</span> Add the work sample</h2>
       <p class="hint">Photos (JPG, PNG, WebP, GIF), PDFs, or short videos — add multiple files if needed. Word documents: save/export as PDF first. Photos are resized in your browser before sending.</p>
-      <p class="hint">🎬 <strong>Videos:</strong> still frames are sampled from the video in your browser and analysed in sequence — good for performance tasks you can <em>see</em> (PE skills, handwriting process, science practicals, art technique). <strong>Audio/speech is not analysed.</strong> Best under ~3 minutes; MP4 works most reliably.</p>
+      <p class="hint">🎬 <strong>Videos:</strong> still frames are sampled in your browser and analysed in sequence, and speech is <strong>transcribed on your device</strong> (nothing is uploaded for transcription; the speech model downloads once, ~40–80&nbsp;MB). The analysis identifies key moments against your criteria with timestamps. Best under ~3 minutes; MP4 works most reliably.</p>
+
+      <label class="field-label" for="transcribe-mode">Speech transcription for videos (English)</label>
+      <select id="transcribe-mode">
+        <option value="tiny" selected>Standard — faster, ~40 MB one-time download</option>
+        <option value="base">Higher accuracy — slower, ~80 MB one-time download</option>
+        <option value="off">Off — analyse the visuals only</option>
+      </select>
 
       <div class="drop" id="drop">
         <strong>Click to choose files</strong> or drag &amp; drop here<br>
@@ -348,6 +383,23 @@ Spelling of common words is accurate"></textarea>
       <input type="file" id="video-input" accept="video/*" capture="environment" hidden>
 
       <div class="file-list" id="file-list"></div>
+
+      <div class="row" style="margin-top:12px">
+        <button class="ghost small" id="btn-share">📤 Create review pack for a colleague</button>
+      </div>
+      <p class="hint" style="margin-top:6px">Downloads a single HTML file containing the work sample, criteria, video frames and transcript, plus a feedback form. Send it to a colleague however you normally share files (email, Teams, OneDrive) — they open it in any browser (no API key needed), write their feedback, and send it back as text. Paste their feedback into “Extra context” to include it in the analysis.</p>
+    </section>
+
+    <!-- Step 3: Student self-assessment -->
+    <section class="panel" style="grid-column: 1 / -1;">
+      <h2><span class="step">3</span> Student self-assessment <span style="font-weight:400;color:var(--ink-soft);font-size:.85rem">(optional)</span></h2>
+      <p class="hint">Let the student rate their own work against the same criteria first. The analysis will respond to their self-assessment — where their judgement matched, where it differed and why. Great for building feedback literacy.</p>
+      <button class="ghost small" id="btn-build-selfassess">Build self-assessment from my criteria</button>
+      <div id="selfassess-rows" style="margin-top:12px"></div>
+      <div id="selfassess-overall" style="display:none">
+        <label class="field-label" for="selfassess-reflection">Student's own reflection</label>
+        <textarea id="selfassess-reflection" rows="2" placeholder="In the student's words: What do you think you did well? What was tricky?"></textarea>
+      </div>
     </section>
   </div>
 
@@ -492,10 +544,13 @@ async function addFiles(fileList) {
       } else if (f.type.startsWith("video/") || /\.(mp4|mov|webm|m4v)$/i.test(f.name)) {
         setStatus(`Sampling frames from "${f.name}"…`, false, true);
         const { frames, durationLabel, thumbUrl } = await processVideo(f);
-        files.push({
-          name: f.name, kind: "video", frames, thumbUrl,
+        const entry = {
+          name: f.name, kind: "video", frames, thumbUrl, durationLabel,
           sizeLabel: `video · ${durationLabel} · ${frames.length} frames sampled`,
-        });
+          transcript: null, transcriptNote: "",
+        };
+        files.push(entry);
+        entry.transcriptPromise = transcribeVideo(f, entry); // runs in background
         setStatus("");
       } else {
         setStatus(`"${f.name}" isn't a supported type — use a photo, PDF, or video. (Word docs: save as PDF first.)`, true);
@@ -616,6 +671,89 @@ function timeLabel(seconds) {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+/* ---- On-device speech transcription (Whisper via transformers.js) ---- */
+/* Audio never leaves the browser: the model is downloaded once from a CDN
+   and inference runs locally (WASM). English models. */
+let asrPromise = null;
+let asrModelLoaded = null;
+
+function getASR(mode, onProgress) {
+  const modelId = mode === "base" ? "Xenova/whisper-base.en" : "Xenova/whisper-tiny.en";
+  if (!asrPromise || asrModelLoaded !== modelId) {
+    asrModelLoaded = modelId;
+    asrPromise = (async () => {
+      const { pipeline, env } = await import("https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2");
+      env.allowLocalModels = false;
+      return pipeline("automatic-speech-recognition", modelId, {
+        quantized: true,
+        progress_callback: (p) => {
+          if (p.status === "progress" && onProgress) onProgress(Math.round(p.progress || 0));
+        },
+      });
+    })();
+    asrPromise.catch(() => { asrPromise = null; asrModelLoaded = null; });
+  }
+  return asrPromise;
+}
+
+async function extractAudio16k(file) {
+  const buf = await file.arrayBuffer();
+  const AC = window.AudioContext || window.webkitAudioContext;
+  const ac = new AC();
+  let decoded;
+  try {
+    decoded = await ac.decodeAudioData(buf);
+  } finally {
+    ac.close();
+  }
+  const oc = new OfflineAudioContext(1, Math.ceil(decoded.duration * 16000), 16000);
+  const src = oc.createBufferSource();
+  src.buffer = decoded;
+  src.connect(oc.destination);
+  src.start();
+  const rendered = await oc.startRendering();
+  return rendered.getChannelData(0);
+}
+
+async function transcribeVideo(file, entry) {
+  const mode = $("transcribe-mode").value;
+  if (mode === "off") { entry.transcriptNote = "transcription off"; renderFileList(); return; }
+  try {
+    entry.transcriptNote = "reading audio…";
+    renderFileList();
+    const audio = await extractAudio16k(file);
+
+    entry.transcriptNote = "loading speech model (first time may take a minute)…";
+    renderFileList();
+    const asr = await getASR(mode, (pct) => {
+      entry.transcriptNote = `downloading speech model… ${pct}%`;
+      renderFileList();
+    });
+
+    entry.transcriptNote = "transcribing…";
+    renderFileList();
+    const out = await asr(audio, { chunk_length_s: 30, stride_length_s: 5, return_timestamps: true });
+    const segs = (out.chunks || [])
+      .map((c) => ({
+        start: c.timestamp?.[0] ?? 0,
+        end: c.timestamp?.[1] ?? c.timestamp?.[0] ?? 0,
+        text: (c.text || "").trim(),
+      }))
+      .filter((s) => s.text && !/^\[.*\]$/.test(s.text));
+    entry.transcript = segs.length ? segs : null;
+    entry.transcriptNote = segs.length
+      ? `✓ transcript ready (${segs.length} segments)`
+      : "no clear speech detected";
+  } catch (err) {
+    entry.transcript = null;
+    entry.transcriptNote = "transcript unavailable — " +
+      (String(err.message || err).includes("decode")
+        ? "no readable audio track"
+        : "speech model couldn't load (network blocked?); analysing visuals only");
+  }
+  renderFileList();
+}
+
 function sizeLabel(bytes) {
   return bytes > 1024 * 1024 ? (bytes / 1048576).toFixed(1) + " MB" : Math.round(bytes / 1024) + " KB";
 }
@@ -629,13 +767,166 @@ function renderFileList() {
     const preview = f.kind === "pdf"
       ? `<div class="pdf-icon">PDF</div>`
       : `<img class="thumb" src="${f.thumbUrl}" alt="">`;
+    const note = f.kind === "video" && f.transcriptNote
+      ? `<div class="size">${escapeHtml(f.transcriptNote)}</div>` : "";
     item.innerHTML = `${preview}
-      <div class="meta"><div class="name"></div><div class="size">${f.sizeLabel}</div></div>
+      <div class="meta"><div class="name"></div><div class="size">${f.sizeLabel}</div>${note}</div>
       <button title="Remove">✕</button>`;
     item.querySelector(".name").textContent = f.name;
     item.querySelector("button").addEventListener("click", () => { files.splice(i, 1); renderFileList(); });
     list.appendChild(item);
   });
+}
+
+/* ------------------------------------------------------------------ */
+/* Student self-assessment                                             */
+/* ------------------------------------------------------------------ */
+function criteriaLines() {
+  return $("criteria").value.split("\n").map((s) => s.trim()).filter(Boolean);
+}
+
+$("btn-build-selfassess").addEventListener("click", () => {
+  const lines = criteriaLines();
+  if (!lines.length) { setStatus("Add criteria in step 1 first, then build the self-assessment.", true); return; }
+  const scaleChoice = $("scale").value;
+  const options = scaleChoice === "rubric"
+    ? null
+    : SCALES[scaleChoice];
+  const wrap = $("selfassess-rows");
+  wrap.innerHTML = "";
+  lines.forEach((c) => {
+    const row = document.createElement("div");
+    row.className = "sa-row";
+    const ratingField = options
+      ? `<select class="sa-rating"><option value="">— student's rating —</option>${options.map((o) => `<option>${escapeHtml(o)}</option>`).join("")}</select>`
+      : `<input type="text" class="sa-rating" placeholder="student's level (from rubric)">`;
+    row.innerHTML = `<div class="sa-crit"></div>${ratingField}<input type="text" class="sa-comment" placeholder="why? (optional)">`;
+    row.querySelector(".sa-crit").textContent = c;
+    row.dataset.criterion = c;
+    wrap.appendChild(row);
+  });
+  $("selfassess-overall").style.display = "";
+});
+
+function collectSelfAssessment() {
+  const rows = [...document.querySelectorAll("#selfassess-rows .sa-row")];
+  const items = rows
+    .map((row) => ({
+      criterion: row.dataset.criterion,
+      rating: row.querySelector(".sa-rating").value.trim(),
+      comment: row.querySelector(".sa-comment").value.trim(),
+    }))
+    .filter((i) => i.rating || i.comment);
+  const reflection = ($("selfassess-reflection")?.value || "").trim();
+  if (!items.length && !reflection) return null;
+  return { items, reflection };
+}
+
+/* ------------------------------------------------------------------ */
+/* Review pack for a colleague (offline share — no server involved)    */
+/* ------------------------------------------------------------------ */
+$("btn-share").addEventListener("click", async () => {
+  if (files.length === 0) { setStatus("Add the work sample first, then create the review pack.", true); return; }
+  // wait for any in-flight transcriptions so the pack includes them
+  const pending = files.filter((f) => f.transcriptPromise);
+  if (pending.length) {
+    setStatus("Waiting for transcription to finish before packing…", false, true);
+    await Promise.all(pending.map((f) => f.transcriptPromise));
+  }
+  const html = buildReviewPack();
+  const blob = new Blob([html], { type: "text/html" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  const subject = $("subject").value.trim().replace(/[^\w\- ]+/g, "").trim();
+  a.download = (subject ? subject.replace(/\s+/g, "-").toLowerCase() + "-" : "") + "work-sample-review.html";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  setStatus("Review pack downloaded — send the file to your colleague (email, Teams, OneDrive…).");
+});
+
+function buildReviewPack() {
+  const scaleChoice = $("scale").value;
+  const lines = criteriaLines();
+  const ratingOptions = scaleChoice === "rubric" ? [] : SCALES[scaleChoice];
+  const year = $("year-level").value.trim();
+  const subject = $("subject").value.trim();
+
+  const sampleParts = [];
+  for (const f of files) {
+    if (f.kind === "image") {
+      sampleParts.push(`<figure><img src="data:${f.mediaType};base64,${f.base64}" alt=""><figcaption>${escapeHtml(f.name)}</figcaption></figure>`);
+    } else if (f.kind === "pdf") {
+      sampleParts.push(`<figure><embed src="data:application/pdf;base64,${f.base64}" type="application/pdf" style="width:100%;height:70vh;border:1px solid #ddd"><figcaption>${escapeHtml(f.name)} (if the PDF doesn't display, open this pack in a desktop browser)</figcaption></figure>`);
+    } else if (f.kind === "video") {
+      const framesHtml = f.frames.map((fr) =>
+        `<figure class="frame"><img src="data:image/jpeg;base64,${fr.base64}" alt=""><figcaption>${timeLabel(fr.time)}</figcaption></figure>`).join("");
+      const transcriptHtml = f.transcript && f.transcript.length
+        ? `<h3>Transcript (auto-generated — may contain errors)</h3>` +
+          f.transcript.map((s) => `<p class="seg"><span class="ts">[${timeLabel(s.start)}–${timeLabel(s.end)}]</span> ${escapeHtml(s.text)}</p>`).join("")
+        : `<p><em>No transcript available for this video.</em></p>`;
+      sampleParts.push(`<h3>Video: ${escapeHtml(f.name)} (${escapeHtml(f.durationLabel)}) — frames in time order</h3><div class="filmstrip">${framesHtml}</div>${transcriptHtml}`);
+    }
+  }
+
+  const critRows = lines.map((c, i) => `
+    <div class="crit">
+      <div class="c-name">${escapeHtml(c)}</div>
+      ${ratingOptions.length
+        ? `<select id="r${i}"><option value="">— rating —</option>${ratingOptions.map((o) => `<option>${escapeHtml(o)}</option>`).join("")}</select>`
+        : `<input id="r${i}" type="text" placeholder="level (from the rubric)">`}
+      <textarea id="c${i}" rows="2" placeholder="Feedback / evidence you noticed…"></textarea>
+    </div>`).join("");
+
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Work sample review${subject ? " — " + escapeHtml(subject) : ""}</title>
+<style>
+ body{font-family:"Segoe UI",system-ui,sans-serif;max-width:900px;margin:0 auto;padding:24px 16px;color:#23211c;background:#f6f4ef;line-height:1.5}
+ h1{font-size:1.3rem}h2{font-size:1.05rem;margin:24px 0 8px}h3{font-size:.95rem;margin:16px 0 6px}
+ .card{background:#fff;border:1px solid #e3ded4;border-radius:10px;padding:16px 18px;margin-bottom:16px}
+ figure{margin:10px 0}figure img{max-width:100%;border:1px solid #e3ded4;border-radius:8px}
+ figcaption{font-size:.78rem;color:#6b675e}
+ .filmstrip{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px}
+ .filmstrip img{width:100%}
+ .seg{font-size:.88rem;margin:2px 0}.ts{font-family:ui-monospace,monospace;font-size:.78rem;color:#2f5e8f;margin-right:6px}
+ .crit{border-top:1px solid #e3ded4;padding:10px 0}.crit:first-child{border-top:none}
+ .c-name{font-weight:600;font-size:.92rem;margin-bottom:6px}
+ select,input,textarea{font:inherit;width:100%;padding:8px 10px;border:1px solid #e3ded4;border-radius:7px;margin-bottom:6px;background:#fdfcfa}
+ button{font:inherit;font-weight:600;background:#1f6f5c;color:#fff;border:none;border-radius:7px;padding:10px 18px;cursor:pointer;margin-right:8px}
+ .note{font-size:.82rem;color:#6b675e}
+ ul.criteria{padding-left:20px;font-size:.9rem}
+</style></head><body>
+<h1>Work sample review${subject ? " — " + escapeHtml(subject) : ""}${year ? " (" + escapeHtml(year) + ")" : ""}</h1>
+<p class="note">A colleague has asked for your feedback on this work sample. Review it against the criteria, fill in the form, then use the buttons at the bottom to copy or download your feedback and send it back. This file is self-contained — nothing you type leaves your computer until you send it yourself.</p>
+<div class="card"><h2>Criteria</h2><ul class="criteria">${lines.map((c) => `<li>${escapeHtml(c)}</li>`).join("")}</ul></div>
+<div class="card"><h2>Work sample</h2>${sampleParts.join("")}</div>
+<div class="card"><h2>Your feedback</h2>
+${critRows}
+<h3>Overall comment</h3>
+<textarea id="overall" rows="4" placeholder="Overall impressions, moderation judgement, suggestions…"></textarea>
+<label style="font-size:.85rem"><input type="text" id="reviewer" placeholder="Your name (optional)" style="max-width:280px"></label>
+<div style="margin-top:12px">
+<button onclick="exportFeedback('copy')">Copy feedback</button>
+<button onclick="exportFeedback('download')">Download feedback (.txt)</button>
+</div>
+</div>
+<script>
+function exportFeedback(mode){
+  const lines=[];
+  const reviewer=document.getElementById('reviewer').value.trim();
+  lines.push('COLLEAGUE FEEDBACK — ${escapeHtml((subject || "work sample").replace(/'/g, ""))}'+(reviewer?' (from '+reviewer+')':''));
+  ${JSON.stringify(lines)}.forEach((c,i)=>{
+    const r=document.getElementById('r'+i).value.trim();
+    const t=document.getElementById('c'+i).value.trim();
+    if(r||t){lines.push('- '+c+(r?': '+r:''));if(t)lines.push('  '+t);}
+  });
+  const o=document.getElementById('overall').value.trim();
+  if(o){lines.push('');lines.push('Overall: '+o);}
+  const text=lines.join('\\n');
+  if(mode==='copy'){navigator.clipboard.writeText(text).then(()=>alert('Feedback copied — paste it into an email or message.'));}
+  else{const b=new Blob([text],{type:'text/plain'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='work-sample-feedback.txt';a.click();}
+}
+<\/script>
+</body></html>`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -660,11 +951,11 @@ function escapeHtml(s) {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-function buildSchema(scaleChoice) {
+function buildSchema(scaleChoice, hasVideo, hasSelfAssessment) {
   const ratingProp = scaleChoice === "rubric"
     ? { type: "string", description: "The level from the teacher's rubric that best matches, using the rubric's own wording" }
     : { type: "string", enum: SCALES[scaleChoice] };
-  return {
+  const schema = {
     type: "object",
     properties: {
       legible: { type: "boolean", description: "false only if the work sample is unreadable or clearly not student work" },
@@ -700,9 +991,35 @@ function buildSchema(scaleChoice) {
     required: ["legible", "legibility_note", "overall_summary", "criteria_results", "strengths", "areas_for_growth", "next_steps", "student_comment"],
     additionalProperties: false,
   };
+  if (hasVideo) {
+    schema.properties.key_moments = {
+      type: "array",
+      description: "3-8 key moments from the video that best evidence the criteria, in time order",
+      items: {
+        type: "object",
+        properties: {
+          timestamp: { type: "string", description: "Time from the start of the video, m:ss format, taken from frame or transcript timestamps" },
+          criterion: { type: "string", description: "The criterion this moment relates to" },
+          what_happened: { type: "string", description: "What is observed (or said, if a transcript is available) at this moment" },
+          analysis: { type: "string", description: "What this moment shows about the student's performance against the criterion" },
+        },
+        required: ["timestamp", "criterion", "what_happened", "analysis"],
+        additionalProperties: false,
+      },
+    };
+    schema.required.push("key_moments");
+  }
+  if (hasSelfAssessment) {
+    schema.properties.self_assessment_response = {
+      type: "string",
+      description: "3-5 sentences responding to the student's self-assessment: name where their judgement matched this analysis, where it differed and why (with evidence), and what that suggests about their self-assessment skills. Warm, specific, addressed to the teacher.",
+    };
+    schema.required.push("self_assessment_response");
+  }
+  return schema;
 }
 
-function buildPrompt() {
+function buildPrompt(hasVideo, hasTranscript, selfAssessment) {
   const criteria = $("criteria").value.trim();
   const scaleChoice = $("scale").value;
   const year = $("year-level").value.trim();
@@ -716,20 +1033,47 @@ function buildPrompt() {
     scaleText = `Rate each criterion on this scale: ${SCALES[scaleChoice].join(" → ")}.`;
   }
 
+  let selfAssessBlock = "";
+  if (selfAssessment) {
+    const rows = selfAssessment.items
+      .map((i) => `- ${i.criterion}: ${i.rating || "(no rating given)"}${i.comment ? ` — "${i.comment}"` : ""}`)
+      .join("\n");
+    selfAssessBlock = `
+The student has self-assessed their own work BEFORE this analysis:
+<student_self_assessment>
+${rows}${selfAssessment.reflection ? `\nStudent's reflection: "${selfAssessment.reflection}"` : ""}
+</student_self_assessment>
+`;
+  }
+
+  const videoGuides = [];
+  if (hasVideo) {
+    videoGuides.push("- Video inputs appear as timestamped still frames sampled in time order; treat each video as one continuous performance.");
+    if (hasTranscript) {
+      videoGuides.push("- A timestamped auto-generated transcript of the video's audio is provided. It may contain recognition errors — treat obviously garbled words with caution, but use the transcript as genuine evidence for spoken criteria.");
+    } else {
+      videoGuides.push("- No transcript is available, so spoken content is unknown and must not be guessed at; assess only what is visible.");
+    }
+    videoGuides.push("- Identify the 3-8 key_moments that best evidence the criteria. Take timestamps from the frame labels and transcript segments; describe what happened and analyse what it shows against the named criterion. Cite these timestamps in evidence and justifications too (e.g. \"at 1:24…\").");
+  }
+  const selfAssessGuides = selfAssessment
+    ? ["- Form your own ratings INDEPENDENTLY first, then write self_assessment_response comparing the student's self-assessment to your analysis: where they matched, where they differed and why (with evidence), and what it suggests about their self-assessment skills. Do not let their self-ratings anchor yours."]
+    : [];
+
   return `You are an experienced teacher moderating a student work sample. Analyse the attached work sample against the assessment criteria below.
 
 <criteria>
 ${criteria}
 </criteria>
 
-${year ? `Year level: ${year}\n` : ""}${subject ? `Subject/task: ${subject}\n` : ""}${context ? `Additional context: ${context}\n` : ""}
+${year ? `Year level: ${year}\n` : ""}${subject ? `Subject/task: ${subject}\n` : ""}${context ? `Additional context: ${context}\n` : ""}${selfAssessBlock}
 ${scaleText}
 
 Guidelines:
 - Address every distinct criterion in the criteria/rubric above — one entry per criterion in criteria_results.
 - Ground every rating in specific evidence you can see in the work sample; quote the student's actual words or describe the specific working where possible.
 - For each criterion, the justification must work like assessment moderation: cite the evidence, connect it to the wording of the criterion (or the rubric's level descriptor), and briefly explain why the work sits at this level rather than the level above or below. Never justify by restating the rating.
-- If some inputs are video frames (sequential stills sampled from a video), treat them as one continuous performance in time order; note that any audio/spoken content is not available to you and must not be guessed at.
+${videoGuides.concat(selfAssessGuides).join("\n")}
 - Judge against age-appropriate expectations${year ? ` for ${year}` : ""}, not adult standards.
 - Be honest but constructive: name what the student did well before what needs work.
 - If part of the sample is illegible or ambiguous, say so in the evidence rather than guessing.
@@ -744,7 +1088,18 @@ async function analyse() {
   if (files.length === 0) { setStatus("Add at least one photo or PDF of the work sample (step 2).", true); return; }
   if (!getKey()) { openKeyDialog(); setStatus("Enter your Anthropic API key to analyse.", true); return; }
 
+  // finish any in-flight transcriptions first so the transcript can be included
+  const pendingTranscripts = files.filter((f) => f.transcriptPromise);
+  if (pendingTranscripts.length) {
+    setStatus("Finishing transcription before analysing…", false, true);
+    await Promise.all(pendingTranscripts.map((f) => f.transcriptPromise));
+  }
+
   const scaleChoice = $("scale").value;
+  const hasVideo = files.some((f) => f.kind === "video");
+  const hasTranscript = files.some((f) => f.kind === "video" && f.transcript && f.transcript.length);
+  const selfAssessment = collectSelfAssessment();
+
   const content = [];
   for (const f of files) {
     if (f.kind === "image") {
@@ -752,24 +1107,33 @@ async function analyse() {
     } else if (f.kind === "video") {
       content.push({
         type: "text",
-        text: `The following ${f.frames.length} images are still frames sampled in time order from a video ("${f.name}", duration ${f.sizeLabel.split(" · ")[1]}). Treat them as one continuous performance. Audio is not available.`,
+        text: `The following ${f.frames.length} images are still frames sampled in time order from a video ("${f.name}", duration ${f.durationLabel}). Treat them as one continuous performance.`,
       });
       for (const fr of f.frames) {
         content.push({ type: "text", text: `Frame at ${timeLabel(fr.time)}:` });
         content.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: fr.base64 } });
       }
+      if (f.transcript && f.transcript.length) {
+        const lines = f.transcript.map((s) => `[${timeLabel(s.start)}–${timeLabel(s.end)}] ${s.text}`).join("\n");
+        content.push({
+          type: "text",
+          text: `Auto-generated transcript of the audio from "${f.name}" (may contain recognition errors):\n${lines}`,
+        });
+      } else {
+        content.push({ type: "text", text: `No transcript is available for "${f.name}" — spoken content is unknown.` });
+      }
     } else {
       content.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: f.base64 } });
     }
   }
-  content.push({ type: "text", text: buildPrompt() });
+  content.push({ type: "text", text: buildPrompt(hasVideo, hasTranscript, selfAssessment) });
 
   const body = {
     model: MODEL,
     max_tokens: 16000,
     thinking: { type: "adaptive" },
     output_config: {
-      format: { type: "json_schema", schema: buildSchema(scaleChoice) },
+      format: { type: "json_schema", schema: buildSchema(scaleChoice, hasVideo, !!selfAssessment) },
     },
     messages: [{ role: "user", content }],
   };
@@ -880,6 +1244,29 @@ function renderResults(res) {
   }
   parts.push("</div>");
 
+  if (res.key_moments && res.key_moments.length) {
+    parts.push(`<div class="moments"><h3>🎬 Key moments</h3>${res.key_moments.map((m) => `
+      <div class="moment">
+        <span class="ts">${escapeHtml(m.timestamp)}</span>
+        <div>
+          <div class="m-crit">${escapeHtml(m.criterion)}</div>
+          <div class="m-what">${escapeHtml(m.what_happened)}</div>
+          <div class="m-analysis">${escapeHtml(m.analysis)}</div>
+        </div>
+      </div>`).join("")}</div>`);
+  }
+
+  const transcripts = files.filter((f) => f.kind === "video" && f.transcript && f.transcript.length);
+  for (const v of transcripts) {
+    parts.push(`<details class="transcript"><summary>📝 Transcript — ${escapeHtml(v.name)} (auto-generated, may contain errors)</summary>
+      ${v.transcript.map((s) => `<div class="seg"><span class="ts">[${timeLabel(s.start)}–${timeLabel(s.end)}]</span>${escapeHtml(s.text)}</div>`).join("")}
+    </details>`);
+  }
+
+  if (res.self_assessment_response) {
+    parts.push(`<div class="sa-compare"><h3>🪞 Self-assessment vs analysis</h3><p style="font-size:.9rem">${escapeHtml(res.self_assessment_response)}</p></div>`);
+  }
+
   parts.push(`
     <div class="two-col">
       <div class="list-box strengths"><h3>✅ Strengths</h3><ul>${(res.strengths || []).map((s) => `<li>${escapeHtml(s)}</li>`).join("")}</ul></div>
@@ -916,6 +1303,18 @@ $("btn-copy").addEventListener("click", async () => {
     if (c.evidence) lines.push(`  Evidence: ${c.evidence}`);
     if (c.justification) lines.push(`  Why this rating: ${c.justification}`);
     lines.push(`  Feedback: ${c.feedback}`);
+  }
+  if (r.key_moments && r.key_moments.length) {
+    lines.push("");
+    lines.push("Key moments:");
+    r.key_moments.forEach((m) => {
+      lines.push(`- [${m.timestamp}] ${m.criterion}: ${m.what_happened}`);
+      lines.push(`  ${m.analysis}`);
+    });
+  }
+  if (r.self_assessment_response) {
+    lines.push("");
+    lines.push("Self-assessment vs analysis: " + r.self_assessment_response);
   }
   lines.push("");
   lines.push("Strengths:");
