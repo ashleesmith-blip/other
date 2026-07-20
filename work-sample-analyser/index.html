@@ -1,0 +1,837 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Work Sample Analyser</title>
+<style>
+  :root {
+    --bg: #f6f4ef;
+    --panel: #ffffff;
+    --ink: #23211c;
+    --ink-soft: #6b675e;
+    --line: #e3ded4;
+    --accent: #1f6f5c;
+    --accent-soft: #e4f0ec;
+    --amber: #b0762a;
+    --amber-soft: #f7ecdc;
+    --red: #a8402f;
+    --red-soft: #f6e4e0;
+    --blue: #2f5e8f;
+    --blue-soft: #e4edf5;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+  header {
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  header h1 { font-size: 1.25rem; font-weight: 650; }
+  header h1 span { color: var(--accent); }
+  header .sub { color: var(--ink-soft); font-size: .85rem; }
+  main {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 24px 16px 80px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 20px;
+  }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 20px;
+  }
+  .panel h2 {
+    font-size: 1rem;
+    font-weight: 650;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .panel h2 .step {
+    background: var(--accent);
+    color: #fff;
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: .78rem;
+    flex-shrink: 0;
+  }
+  .panel .hint { color: var(--ink-soft); font-size: .85rem; margin-bottom: 14px; }
+  label.field-label {
+    display: block;
+    font-size: .82rem;
+    font-weight: 600;
+    color: var(--ink-soft);
+    margin: 12px 0 4px;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+  }
+  input[type="text"], input[type="password"], select, textarea {
+    width: 100%;
+    padding: 9px 11px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    font: inherit;
+    background: #fdfcfa;
+    color: var(--ink);
+  }
+  input:focus, select:focus, textarea:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: -1px;
+  }
+  textarea { resize: vertical; min-height: 140px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .row > * { flex: 1; min-width: 140px; }
+  button {
+    font: inherit;
+    border: none;
+    border-radius: 7px;
+    padding: 9px 16px;
+    cursor: pointer;
+    font-weight: 600;
+  }
+  button.primary { background: var(--accent); color: #fff; }
+  button.primary:hover { background: #185a4a; }
+  button.primary:disabled { background: #9db8b0; cursor: not-allowed; }
+  button.ghost {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+  }
+  button.ghost:hover { background: var(--accent-soft); }
+  button.small { padding: 5px 10px; font-size: .82rem; }
+  .preset-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .drop {
+    border: 2px dashed var(--line);
+    border-radius: var(--radius);
+    padding: 26px 16px;
+    text-align: center;
+    color: var(--ink-soft);
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+    margin-top: 8px;
+  }
+  .drop.dragover { border-color: var(--accent); background: var(--accent-soft); }
+  .drop strong { color: var(--accent); }
+  .file-list { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+  .file-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 8px 10px;
+    background: #fdfcfa;
+  }
+  .file-item img.thumb {
+    width: 44px; height: 44px;
+    object-fit: cover;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+  }
+  .file-item .pdf-icon {
+    width: 44px; height: 44px;
+    border-radius: 6px;
+    background: var(--red-soft);
+    color: var(--red);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: .75rem;
+    border: 1px solid var(--line);
+    flex-shrink: 0;
+  }
+  .file-item .meta { flex: 1; min-width: 0; }
+  .file-item .name { font-size: .88rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-item .size { font-size: .76rem; color: var(--ink-soft); }
+  .file-item button { color: var(--red); background: none; padding: 4px 8px; }
+  .analyse-bar {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .analyse-bar button.primary { padding: 13px 32px; font-size: 1.02rem; }
+  .status { color: var(--ink-soft); font-size: .9rem; }
+  .status.error { color: var(--red); font-weight: 600; }
+  .spinner {
+    width: 18px; height: 18px;
+    border: 3px solid var(--accent-soft);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+    display: inline-block;
+    vertical-align: middle;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Results */
+  #results { grid-column: 1 / -1; display: none; }
+  #results.show { display: block; }
+  .results-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+  .results-head h2 { font-size: 1.15rem; }
+  .summary-box {
+    background: var(--blue-soft);
+    border-left: 4px solid var(--blue);
+    border-radius: 0 8px 8px 0;
+    padding: 14px 16px;
+    margin-bottom: 18px;
+    font-size: .95rem;
+  }
+  .criteria-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; margin-bottom: 20px; }
+  .crit-card {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    background: #fdfcfa;
+    break-inside: avoid;
+  }
+  .crit-card .crit-top { display: flex; justify-content: space-between; align-items: start; gap: 10px; margin-bottom: 8px; }
+  .crit-card h3 { font-size: .95rem; }
+  .badge {
+    font-size: .74rem;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 999px;
+    white-space: nowrap;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+  }
+  .badge.b-high { background: var(--accent-soft); color: var(--accent); }
+  .badge.b-mid  { background: var(--amber-soft); color: var(--amber); }
+  .badge.b-low  { background: var(--red-soft); color: var(--red); }
+  .crit-card .evidence {
+    font-size: .84rem;
+    color: var(--ink-soft);
+    border-left: 3px solid var(--line);
+    padding-left: 10px;
+    margin: 8px 0;
+    font-style: italic;
+  }
+  .crit-card .feedback { font-size: .9rem; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 20px; }
+  @media (max-width: 700px) { .two-col { grid-template-columns: 1fr; } }
+  .list-box { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; }
+  .list-box h3 { font-size: .9rem; margin-bottom: 8px; }
+  .list-box ul { padding-left: 20px; font-size: .9rem; }
+  .list-box li { margin-bottom: 5px; }
+  .list-box.strengths h3 { color: var(--accent); }
+  .list-box.growth h3 { color: var(--amber); }
+  .next-steps { background: var(--accent-soft); border: 1px solid #c8ded7; border-radius: var(--radius); padding: 14px 16px; margin-bottom: 20px; }
+  .next-steps h3 { font-size: .9rem; color: var(--accent); margin-bottom: 8px; }
+  .next-steps ol { padding-left: 20px; font-size: .9rem; }
+  .next-steps li { margin-bottom: 5px; }
+  .student-comment { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 20px; }
+  .student-comment h3 { font-size: .9rem; margin-bottom: 8px; }
+  .disclaimer { font-size: .78rem; color: var(--ink-soft); margin-top: 6px; }
+
+  /* API key modal */
+  dialog {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 24px;
+    max-width: 460px;
+    width: calc(100% - 32px);
+  }
+  dialog::backdrop { background: rgba(30,28,22,.45); }
+  dialog h2 { font-size: 1.05rem; margin-bottom: 6px; }
+  dialog p { font-size: .87rem; color: var(--ink-soft); margin-bottom: 12px; }
+  dialog .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+
+  @media print {
+    header, .analyse-bar, #setup-panels, .results-head button, dialog { display: none !important; }
+    body { background: #fff; }
+    main { padding: 0; }
+    #results { display: block !important; }
+    .panel { border: none; padding: 0; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Work Sample <span>Analyser</span></h1>
+    <div class="sub">Analyse a photo or PDF of student work against your criteria</div>
+  </div>
+  <button class="ghost small" id="btn-key">API key…</button>
+</header>
+
+<main>
+  <div id="setup-panels" style="display: contents;">
+
+    <!-- Step 1: Criteria -->
+    <section class="panel">
+      <h2><span class="step">1</span> Set your criteria</h2>
+      <p class="hint">Paste a rubric, list success criteria (one per line), or start from a preset. The analysis addresses each criterion it finds here.</p>
+
+      <div class="preset-row" id="presets"></div>
+
+      <textarea id="criteria" rows="9" placeholder="e.g.
+Uses a clear orientation that introduces character and setting
+Ideas are sequenced logically with paragraphs
+Uses descriptive language and varied vocabulary
+Sentence punctuation is accurate (capitals, full stops)
+Spelling of common words is accurate"></textarea>
+
+      <label class="field-label" for="scale">Rating scale</label>
+      <select id="scale">
+        <option value="3">3-point: Not yet evident / Developing / Achieved</option>
+        <option value="4" selected>4-point: Not yet evident / Developing / Proficient / Exceeding</option>
+        <option value="rubric">Use the levels written in my rubric</option>
+      </select>
+
+      <div class="row">
+        <div>
+          <label class="field-label" for="year-level">Year level (optional)</label>
+          <input type="text" id="year-level" placeholder="e.g. Year 3">
+        </div>
+        <div>
+          <label class="field-label" for="subject">Subject / task (optional)</label>
+          <input type="text" id="subject" placeholder="e.g. Narrative writing">
+        </div>
+      </div>
+
+      <label class="field-label" for="context">Extra context for the analysis (optional)</label>
+      <textarea id="context" rows="2" placeholder="e.g. Student is an EAL learner; task was completed independently in 40 minutes"></textarea>
+    </section>
+
+    <!-- Step 2: Work sample -->
+    <section class="panel">
+      <h2><span class="step">2</span> Add the work sample</h2>
+      <p class="hint">Photos (JPG, PNG, WebP, GIF) or PDFs — add multiple pages if needed. Word documents: save/export as PDF first. Photos are resized in your browser before sending.</p>
+
+      <div class="drop" id="drop">
+        <strong>Click to choose files</strong> or drag &amp; drop here<br>
+        <span style="font-size:.82rem">You can also take a photo on a phone or tablet</span>
+      </div>
+      <input type="file" id="file-input" accept="image/*,application/pdf" multiple hidden>
+      <div class="row" style="margin-top:10px">
+        <button class="ghost small" id="btn-camera">📷 Take a photo</button>
+      </div>
+      <input type="file" id="camera-input" accept="image/*" capture="environment" hidden>
+
+      <div class="file-list" id="file-list"></div>
+    </section>
+  </div>
+
+  <!-- Analyse -->
+  <div class="analyse-bar">
+    <button class="primary" id="btn-analyse">Analyse work sample</button>
+    <span class="status" id="status"></span>
+  </div>
+
+  <!-- Results -->
+  <section class="panel" id="results">
+    <div class="results-head">
+      <h2 id="results-title">Analysis</h2>
+      <div style="display:flex;gap:8px">
+        <button class="ghost small" id="btn-copy">Copy as text</button>
+        <button class="ghost small" onclick="window.print()">Print / save PDF</button>
+      </div>
+    </div>
+    <div id="results-body"></div>
+    <p class="disclaimer">AI-generated analysis — always review against your own professional judgement before using it for assessment or reporting. Avoid uploading work containing sensitive personal information.</p>
+  </section>
+</main>
+
+<!-- API key dialog -->
+<dialog id="key-dialog">
+  <h2>Anthropic API key</h2>
+  <p>This app calls the Claude API directly from your browser. Your key is stored only in this browser (localStorage) and sent only to <code>api.anthropic.com</code>. Get a key at <strong>platform.claude.com</strong>.</p>
+  <input type="password" id="key-input" placeholder="sk-ant-…" autocomplete="off">
+  <div class="dialog-actions">
+    <button class="ghost" id="btn-key-cancel">Cancel</button>
+    <button class="primary" id="btn-key-save">Save</button>
+  </div>
+</dialog>
+
+<script>
+"use strict";
+
+/* ------------------------------------------------------------------ */
+/* Presets                                                             */
+/* ------------------------------------------------------------------ */
+const PRESETS = {
+  "Narrative writing": `Orientation introduces character(s) and setting clearly
+Events are sequenced logically with a complication and resolution
+Descriptive language and varied vocabulary create interest
+Paragraphs are used to organise ideas
+Sentence punctuation is accurate (capital letters, full stops, commas)
+Spelling of high-frequency words is accurate`,
+  "Persuasive writing": `States a clear position in the introduction
+Gives at least two reasons supported by elaboration or evidence
+Uses persuasive devices (e.g. emotive language, rhetorical questions, high-modality words)
+Ideas are organised into paragraphs with linking words
+Concludes by restating the position
+Punctuation and spelling are accurate`,
+  "Maths problem solving": `Shows understanding of the problem (identifies what is being asked)
+Selects an appropriate strategy or operation
+Working out is shown clearly and logically
+Calculations are accurate
+Answer is stated clearly and makes sense in context
+Uses correct mathematical symbols and notation`,
+  "Handwriting": `Letters are formed correctly
+Letters are consistently sized and sit on the line
+Spacing between words is appropriate
+Writing is legible overall`,
+  "Science investigation": `Question or aim is clearly stated
+Prediction/hypothesis is given with a reason
+Method is described in logical steps
+Results are recorded clearly (table, labels, units where relevant)
+Conclusion refers back to the question and results`,
+};
+
+/* ------------------------------------------------------------------ */
+/* State                                                               */
+/* ------------------------------------------------------------------ */
+const files = []; // { name, kind: 'image'|'pdf', mediaType, base64, sizeLabel, thumbUrl }
+let lastResult = null;
+
+const $ = (id) => document.getElementById(id);
+
+/* ------------------------------------------------------------------ */
+/* API key handling                                                    */
+/* ------------------------------------------------------------------ */
+const KEY_STORAGE = "wsa_api_key";
+const getKey = () => localStorage.getItem(KEY_STORAGE) || "";
+
+$("btn-key").addEventListener("click", () => openKeyDialog());
+$("btn-key-cancel").addEventListener("click", () => $("key-dialog").close());
+$("btn-key-save").addEventListener("click", () => {
+  const v = $("key-input").value.trim();
+  if (v) localStorage.setItem(KEY_STORAGE, v);
+  $("key-dialog").close();
+});
+
+function openKeyDialog() {
+  $("key-input").value = getKey();
+  $("key-dialog").showModal();
+}
+
+/* ------------------------------------------------------------------ */
+/* Presets UI                                                          */
+/* ------------------------------------------------------------------ */
+for (const name of Object.keys(PRESETS)) {
+  const b = document.createElement("button");
+  b.className = "ghost small";
+  b.textContent = name;
+  b.addEventListener("click", () => { $("criteria").value = PRESETS[name]; });
+  $("presets").appendChild(b);
+}
+
+/* ------------------------------------------------------------------ */
+/* File handling                                                       */
+/* ------------------------------------------------------------------ */
+const MAX_IMAGE_EDGE = 2200;   // px — plenty for handwriting legibility
+const JPEG_QUALITY = 0.85;
+const MAX_PDF_BYTES = 28 * 1024 * 1024; // stay under the 32MB request limit
+
+$("drop").addEventListener("click", () => $("file-input").click());
+$("btn-camera").addEventListener("click", () => $("camera-input").click());
+$("file-input").addEventListener("change", (e) => addFiles(e.target.files));
+$("camera-input").addEventListener("change", (e) => addFiles(e.target.files));
+
+["dragover", "dragenter"].forEach((ev) =>
+  $("drop").addEventListener(ev, (e) => { e.preventDefault(); $("drop").classList.add("dragover"); }));
+["dragleave", "drop"].forEach((ev) =>
+  $("drop").addEventListener(ev, (e) => { e.preventDefault(); $("drop").classList.remove("dragover"); }));
+$("drop").addEventListener("drop", (e) => addFiles(e.dataTransfer.files));
+
+async function addFiles(fileList) {
+  for (const f of fileList) {
+    try {
+      if (f.type === "application/pdf" || /\.pdf$/i.test(f.name)) {
+        if (f.size > MAX_PDF_BYTES) {
+          setStatus(`"${f.name}" is too large (max ~28 MB for a PDF).`, true);
+          continue;
+        }
+        const base64 = await fileToBase64(f);
+        files.push({ name: f.name, kind: "pdf", mediaType: "application/pdf", base64, sizeLabel: sizeLabel(f.size) });
+      } else if (f.type.startsWith("image/")) {
+        const { base64, mediaType, bytes, thumbUrl } = await processImage(f);
+        files.push({ name: f.name, kind: "image", mediaType, base64, sizeLabel: sizeLabel(bytes), thumbUrl });
+      } else {
+        setStatus(`"${f.name}" isn't a supported type — use a photo or PDF. (Word docs: save as PDF first.)`, true);
+        continue;
+      }
+    } catch (err) {
+      setStatus(`Couldn't read "${f.name}": ${err.message}`, true);
+    }
+  }
+  renderFileList();
+  // reset inputs so re-selecting the same file works
+  $("file-input").value = "";
+  $("camera-input").value = "";
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(",")[1]);
+    r.onerror = () => reject(new Error("file read failed"));
+    r.readAsDataURL(file);
+  });
+}
+
+// Downscale + re-encode images in the browser: keeps requests small and
+// within the API's per-image limits without losing handwriting legibility.
+function processImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(img.width, img.height));
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#fff"; // flatten transparency
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
+      const dataUrl = canvas.toDataURL("image/jpeg", JPEG_QUALITY);
+      const base64 = dataUrl.split(",")[1];
+      URL.revokeObjectURL(url);
+      resolve({
+        base64,
+        mediaType: "image/jpeg",
+        bytes: Math.round(base64.length * 0.75),
+        thumbUrl: dataUrl,
+      });
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("not a readable image")); };
+    img.src = url;
+  });
+}
+
+function sizeLabel(bytes) {
+  return bytes > 1024 * 1024 ? (bytes / 1048576).toFixed(1) + " MB" : Math.round(bytes / 1024) + " KB";
+}
+
+function renderFileList() {
+  const list = $("file-list");
+  list.innerHTML = "";
+  files.forEach((f, i) => {
+    const item = document.createElement("div");
+    item.className = "file-item";
+    const preview = f.kind === "image"
+      ? `<img class="thumb" src="${f.thumbUrl}" alt="">`
+      : `<div class="pdf-icon">PDF</div>`;
+    item.innerHTML = `${preview}
+      <div class="meta"><div class="name"></div><div class="size">${f.sizeLabel}</div></div>
+      <button title="Remove">✕</button>`;
+    item.querySelector(".name").textContent = f.name;
+    item.querySelector("button").addEventListener("click", () => { files.splice(i, 1); renderFileList(); });
+    list.appendChild(item);
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* Analysis                                                            */
+/* ------------------------------------------------------------------ */
+const API_URL = "https://api.anthropic.com/v1/messages";
+const MODEL = "claude-opus-4-8";
+
+const SCALES = {
+  "3": ["Not yet evident", "Developing", "Achieved"],
+  "4": ["Not yet evident", "Developing", "Proficient", "Exceeding"],
+};
+
+function setStatus(msg, isError = false, spinning = false) {
+  const el = $("status");
+  el.className = "status" + (isError ? " error" : "");
+  el.innerHTML = (spinning ? '<span class="spinner"></span> ' : "") + escapeHtml(msg);
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function buildSchema(scaleChoice) {
+  const ratingProp = scaleChoice === "rubric"
+    ? { type: "string", description: "The level from the teacher's rubric that best matches, using the rubric's own wording" }
+    : { type: "string", enum: SCALES[scaleChoice] };
+  return {
+    type: "object",
+    properties: {
+      legible: { type: "boolean", description: "false only if the work sample is unreadable or clearly not student work" },
+      legibility_note: { type: "string", description: "If not fully legible, what the problem is; otherwise empty string" },
+      overall_summary: { type: "string", description: "2-4 sentence overall summary of the work sample against the criteria" },
+      criteria_results: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            criterion: { type: "string" },
+            rating: ratingProp,
+            evidence: { type: "string", description: "Specific evidence quoted or described from the work sample" },
+            feedback: { type: "string", description: "Constructive, specific feedback for this criterion" },
+          },
+          required: ["criterion", "rating", "evidence", "feedback"],
+          additionalProperties: false,
+        },
+      },
+      strengths: { type: "array", items: { type: "string" } },
+      areas_for_growth: { type: "array", items: { type: "string" } },
+      next_steps: {
+        type: "array",
+        items: { type: "string" },
+        description: "2-4 concrete, teachable next steps the teacher could take with this student",
+      },
+      student_comment: {
+        type: "string",
+        description: "A short, warm, specific comment addressed to the student (2-3 sentences, age-appropriate)",
+      },
+    },
+    required: ["legible", "legibility_note", "overall_summary", "criteria_results", "strengths", "areas_for_growth", "next_steps", "student_comment"],
+    additionalProperties: false,
+  };
+}
+
+function buildPrompt() {
+  const criteria = $("criteria").value.trim();
+  const scaleChoice = $("scale").value;
+  const year = $("year-level").value.trim();
+  const subject = $("subject").value.trim();
+  const context = $("context").value.trim();
+
+  let scaleText;
+  if (scaleChoice === "rubric") {
+    scaleText = "Rate each criterion using the levels written in the rubric itself (use the rubric's own wording for the rating).";
+  } else {
+    scaleText = `Rate each criterion on this scale: ${SCALES[scaleChoice].join(" → ")}.`;
+  }
+
+  return `You are an experienced teacher moderating a student work sample. Analyse the attached work sample against the assessment criteria below.
+
+<criteria>
+${criteria}
+</criteria>
+
+${year ? `Year level: ${year}\n` : ""}${subject ? `Subject/task: ${subject}\n` : ""}${context ? `Additional context: ${context}\n` : ""}
+${scaleText}
+
+Guidelines:
+- Address every distinct criterion in the criteria/rubric above — one entry per criterion in criteria_results.
+- Ground every rating in specific evidence you can see in the work sample; quote the student's actual words or describe the specific working where possible.
+- Judge against age-appropriate expectations${year ? ` for ${year}` : ""}, not adult standards.
+- Be honest but constructive: name what the student did well before what needs work.
+- If part of the sample is illegible or ambiguous, say so in the evidence rather than guessing.
+- next_steps should be actions the TEACHER can take (teaching points, scaffolds, practice tasks), not vague advice.
+- student_comment is written TO the student in warm, plain language they can understand.`;
+}
+
+$("btn-analyse").addEventListener("click", analyse);
+
+async function analyse() {
+  if (!$("criteria").value.trim()) { setStatus("Add some criteria first (step 1).", true); return; }
+  if (files.length === 0) { setStatus("Add at least one photo or PDF of the work sample (step 2).", true); return; }
+  if (!getKey()) { openKeyDialog(); setStatus("Enter your Anthropic API key to analyse.", true); return; }
+
+  const scaleChoice = $("scale").value;
+  const content = [];
+  for (const f of files) {
+    if (f.kind === "image") {
+      content.push({ type: "image", source: { type: "base64", media_type: f.mediaType, data: f.base64 } });
+    } else {
+      content.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: f.base64 } });
+    }
+  }
+  content.push({ type: "text", text: buildPrompt() });
+
+  const body = {
+    model: MODEL,
+    max_tokens: 16000,
+    thinking: { type: "adaptive" },
+    output_config: {
+      format: { type: "json_schema", schema: buildSchema(scaleChoice) },
+    },
+    messages: [{ role: "user", content }],
+  };
+
+  $("btn-analyse").disabled = true;
+  setStatus("Analysing — this usually takes 30–90 seconds…", false, true);
+
+  try {
+    const resp = await fetch(API_URL, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": getKey(),
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify(body),
+    });
+
+    const data = await resp.json().catch(() => null);
+
+    if (!resp.ok) {
+      throw new Error(apiErrorMessage(resp.status, data));
+    }
+    if (data.stop_reason === "refusal") {
+      throw new Error("The model declined to analyse this content. Check the sample doesn't contain sensitive material and try again.");
+    }
+    if (data.stop_reason === "max_tokens") {
+      throw new Error("The response was cut off. Try fewer pages or shorter criteria.");
+    }
+
+    const textBlock = (data.content || []).find((b) => b.type === "text");
+    if (!textBlock) throw new Error("No analysis was returned. Please try again.");
+
+    lastResult = JSON.parse(textBlock.text);
+    renderResults(lastResult);
+    setStatus("Done.");
+  } catch (err) {
+    if (err instanceof TypeError) {
+      setStatus("Network error — check your internet connection (school networks sometimes block api.anthropic.com).", true);
+    } else {
+      setStatus(err.message, true);
+    }
+  } finally {
+    $("btn-analyse").disabled = false;
+  }
+}
+
+function apiErrorMessage(status, data) {
+  const detail = data?.error?.message ? ` (${data.error.message})` : "";
+  switch (status) {
+    case 401: return "Your API key was rejected — check it via the “API key…” button." + detail;
+    case 403: return "Your API key doesn't have permission for this request." + detail;
+    case 413: return "The files are too large for one request — remove some pages or use smaller photos.";
+    case 429: return "Rate limited — wait a minute and try again.";
+    case 529: return "The Claude API is temporarily overloaded — try again shortly.";
+    default:
+      if (status >= 500) return "The Claude API had a server error — try again shortly." + detail;
+      return `Request failed (HTTP ${status})${detail}`;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Results rendering                                                   */
+/* ------------------------------------------------------------------ */
+function ratingClass(rating, scaleChoice) {
+  const r = String(rating).toLowerCase();
+  if (scaleChoice !== "rubric") {
+    const scale = SCALES[scaleChoice];
+    const idx = scale.findIndex((s) => s.toLowerCase() === r);
+    if (idx === 0) return "b-low";
+    if (idx === 1) return "b-mid";
+    if (idx >= 2) return "b-high";
+    // fall through to keyword matching if the rating didn't match the scale
+  }
+  if (/not yet|beginning|limited|below|emerging|needs/.test(r)) return "b-low";
+  if (/develop|partial|approaching|satisfactory|sound/.test(r)) return "b-mid";
+  return "b-high";
+}
+
+function renderResults(res) {
+  const scaleChoice = $("scale").value;
+  const subject = $("subject").value.trim();
+  const year = $("year-level").value.trim();
+  $("results-title").textContent = "Analysis" + (subject ? " — " + subject : "") + (year ? " (" + year + ")" : "");
+
+  const parts = [];
+
+  if (!res.legible && res.legibility_note) {
+    parts.push(`<div class="summary-box" style="background:var(--red-soft);border-left-color:var(--red)">⚠️ ${escapeHtml(res.legibility_note)}</div>`);
+  }
+
+  parts.push(`<div class="summary-box">${escapeHtml(res.overall_summary)}</div>`);
+
+  parts.push('<div class="criteria-grid">');
+  for (const c of res.criteria_results || []) {
+    parts.push(`
+      <div class="crit-card">
+        <div class="crit-top">
+          <h3>${escapeHtml(c.criterion)}</h3>
+          <span class="badge ${ratingClass(c.rating, scaleChoice)}">${escapeHtml(c.rating)}</span>
+        </div>
+        ${c.evidence ? `<div class="evidence">${escapeHtml(c.evidence)}</div>` : ""}
+        <div class="feedback">${escapeHtml(c.feedback)}</div>
+      </div>`);
+  }
+  parts.push("</div>");
+
+  parts.push(`
+    <div class="two-col">
+      <div class="list-box strengths"><h3>✅ Strengths</h3><ul>${(res.strengths || []).map((s) => `<li>${escapeHtml(s)}</li>`).join("")}</ul></div>
+      <div class="list-box growth"><h3>🌱 Areas for growth</h3><ul>${(res.areas_for_growth || []).map((s) => `<li>${escapeHtml(s)}</li>`).join("")}</ul></div>
+    </div>`);
+
+  parts.push(`<div class="next-steps"><h3>Next steps for teaching</h3><ol>${(res.next_steps || []).map((s) => `<li>${escapeHtml(s)}</li>`).join("")}</ol></div>`);
+
+  if (res.student_comment) {
+    parts.push(`<div class="student-comment"><h3>💬 Comment for the student</h3><p>${escapeHtml(res.student_comment)}</p></div>`);
+  }
+
+  $("results-body").innerHTML = parts.join("");
+  $("results").classList.add("show");
+  $("results").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+/* ------------------------------------------------------------------ */
+/* Copy as text                                                        */
+/* ------------------------------------------------------------------ */
+$("btn-copy").addEventListener("click", async () => {
+  if (!lastResult) return;
+  const r = lastResult;
+  const lines = [];
+  const subject = $("subject").value.trim();
+  const year = $("year-level").value.trim();
+  lines.push("WORK SAMPLE ANALYSIS" + (subject ? " — " + subject : "") + (year ? " (" + year + ")" : ""));
+  lines.push("");
+  lines.push("Summary: " + r.overall_summary);
+  lines.push("");
+  lines.push("Criteria:");
+  for (const c of r.criteria_results || []) {
+    lines.push(`- ${c.criterion}: ${c.rating}`);
+    if (c.evidence) lines.push(`  Evidence: ${c.evidence}`);
+    lines.push(`  Feedback: ${c.feedback}`);
+  }
+  lines.push("");
+  lines.push("Strengths:");
+  (r.strengths || []).forEach((s) => lines.push("- " + s));
+  lines.push("");
+  lines.push("Areas for growth:");
+  (r.areas_for_growth || []).forEach((s) => lines.push("- " + s));
+  lines.push("");
+  lines.push("Next steps for teaching:");
+  (r.next_steps || []).forEach((s, i) => lines.push(`${i + 1}. ${s}`));
+  if (r.student_comment) {
+    lines.push("");
+    lines.push("Comment for the student: " + r.student_comment);
+  }
+  await navigator.clipboard.writeText(lines.join("\n"));
+  const btn = $("btn-copy");
+  const old = btn.textContent;
+  btn.textContent = "Copied ✓";
+  setTimeout(() => (btn.textContent = old), 1500);
+});
+
+/* First-run: prompt for key */
+if (!getKey()) setStatus("Click “API key…” (top right) to set your Anthropic API key before analysing.");
+</script>
+</body>
+</html>

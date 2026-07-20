@@ -1,3 +1,47 @@
+# Classroom tools
+
+Two standalone tools live in this repo:
+
+1. **Work Sample Analyser** (`work-sample-analyser/index.html`) — see below.
+2. **Aide Timetable** (`Aide_Timetable_Creator.jsx`) — weekly aide + yard duty planner, documented further down.
+
+---
+
+# Work Sample Analyser — assess any work sample against your criteria
+
+A single-file web app (`work-sample-analyser/index.html`) that analyses a **photo or PDF
+of student work against any criteria or rubric** using the Claude API. Open the file in
+any modern browser — no install, no build step, no server.
+
+## How it works
+
+1. **Set your criteria** — paste a rubric, list success criteria one per line, or start
+   from a built-in preset (narrative writing, persuasive writing, maths problem solving,
+   handwriting, science investigation). Choose a 3-point or 4-point rating scale, or let
+   the analysis use the levels written in your own rubric. Optionally add year level,
+   subject/task, and extra context (e.g. "EAL learner, completed independently").
+2. **Add the work sample** — photos (JPG/PNG/WebP/GIF) or PDFs, multiple pages
+   supported, with drag-and-drop and a take-a-photo button on phones/tablets. Photos are
+   downscaled in the browser before sending. Word docs: export as PDF first.
+3. **Analyse** — the app calls Claude (vision + PDF understanding, structured JSON
+   output) and renders: a per-criterion card with a colour-coded rating, **specific
+   evidence quoted from the work**, and feedback; an overall summary; strengths; areas
+   for growth; concrete next-steps for teaching; and a short warm comment written to the
+   student. Results can be copied as text or printed / saved as PDF.
+
+## Setup
+
+You need an Anthropic API key (platform.claude.com). Click **API key…** in the app —
+the key is stored only in your browser's localStorage and sent only to
+`api.anthropic.com`.
+
+> **Notes for school use:** the AI analysis is a starting point for professional
+> judgement, not a replacement for it. Avoid uploading samples containing sensitive
+> personal information, and check your school/department policy on AI tools before
+> using it for formal assessment. Some school networks block `api.anthropic.com`.
+
+---
+
 # Aide Timetable — weekly aide + yard duty planner
 
 A standalone React tool (same family and aesthetic as **Chunk & Check**) for planning a
