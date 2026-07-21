@@ -1139,25 +1139,30 @@ export default function App() {
                           background: isOpen ? T.blueSoft : uncovered ? T.redSoft : col ? col.soft : b.kind === "break" ? "#FFFDF4" : undefined,
                           outline: isOpen ? `1px solid ${T.blueLine}` : undefined,
                         }}>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 2, alignItems: "flex-start", minHeight: 20 }}>
-                          {assigned.map(({ a, ai }) => {
-                            const c2 = aideColor(ai);
-                            const gone = aAbsent(a);
-                            return (
-                              <span key={a.id} style={{
-                                fontSize: 10, fontWeight: 700, borderRadius: 5, padding: "0px 6px",
-                                background: gone ? T.redSoft : c2.main, color: gone ? T.red : c2.on,
-                                border: `1px solid ${gone ? T.redLine : c2.main}`, whiteSpace: "nowrap",
-                                ...(gone ? { textDecoration: "line-through" } : {}),
-                              }}>{a.name}</span>
-                            );
-                          })}
-                          {subj && (
-                            <span style={{ fontSize: 8.5, fontWeight: 600, color: isPriority(kid, subj) ? T.blueDeep : T.faint, paddingLeft: 1 }}>{subj}</span>
-                          )}
-                          {uncovered && <span style={{ fontSize: 9, fontWeight: 800, color: T.red }}>Needs cover</span>}
-                          {!assigned.length && !subj && editable && <span style={{ fontSize: 12, fontWeight: 700, color: T.faint, opacity: 0.5 }}>+</span>}
-                          {!assigned.length && !subj && !editable && b.kind === "break" && <span style={{ fontSize: 9, fontWeight: 600, color: T.faint }}>—</span>}
+                        <div title={subj || undefined} style={{ display: "flex", flexDirection: "column", gap: 3, alignItems: "stretch", justifyContent: "center", textAlign: "center", minHeight: 28 }}>
+                          {assigned.length > 0 ? (
+                            assigned.map(({ a, ai }) => {
+                              const c2 = aideColor(ai);
+                              const gone = aAbsent(a);
+                              return (
+                                <span key={a.id} style={{
+                                  display: "block", boxSizing: "border-box", width: "100%",
+                                  fontSize: 12.5, fontWeight: 700, borderRadius: 6, padding: "4px 6px",
+                                  background: gone ? T.redSoft : c2.main, color: gone ? T.red : c2.on,
+                                  border: `1px solid ${gone ? T.redLine : c2.main}`,
+                                  whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                                  ...(gone ? { textDecoration: "line-through" } : {}),
+                                }}>{a.name}</span>
+                              );
+                            })
+                          ) : subj ? (
+                            <span style={{ fontSize: 11.5, fontWeight: isPriority(kid, subj) ? 800 : 600, color: isPriority(kid, subj) ? T.blueDeep : T.sub }}>{subj}</span>
+                          ) : editable ? (
+                            <span style={{ fontSize: 14, fontWeight: 700, color: T.faint, opacity: 0.4 }}>+</span>
+                          ) : b.kind === "break" ? (
+                            <span style={{ fontSize: 10, fontWeight: 600, color: T.faint }}>—</span>
+                          ) : null}
+                          {uncovered && <span style={{ fontSize: 9.5, fontWeight: 800, color: T.red }}>Needs cover</span>}
                         </div>
                       </td>
                     );
@@ -1175,6 +1180,7 @@ export default function App() {
         {pickCell && pickCell.dy === dy && (() => {
           const kid = studentById(pickCell.studentId);
           const b = BLOCKS.find((x) => x.id === pickCell.blockId);
+          const pickSubj = b?.kind === "session" ? subjectFor(kid, dy, SESSIONS.findIndex((s) => s.id === pickCell.blockId)) : "";
           const working = aides.map((a, ai) => ({ a, ai }))
             .filter(({ a }) => a.days?.[dy])
             .map((x) => {
@@ -1195,7 +1201,7 @@ export default function App() {
               <div style={{ position: "fixed", left, top, zIndex: 61, width: 234, maxHeight: 320, overflowY: "auto",
                 background: "#FFF", border: `1px solid ${T.line}`, borderRadius: 12, boxShadow: "0 12px 32px rgba(15,23,42,0.18)", padding: 8 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: T.ink, padding: "2px 6px 6px" }}>
-                  {kid?.name} · {b?.label}
+                  {kid?.name} · {b?.label}{pickSubj ? <span style={{ color: isPriority(kid, pickSubj) ? T.blueDeep : T.sub }}> · {pickSubj}</span> : null}
                   <div style={{ fontSize: 9.5, fontWeight: 600, color: T.faint }}>Who's supporting this session?</div>
                 </div>
                 {working.map(({ a, ai, here, busy }, idx) => {
