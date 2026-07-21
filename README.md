@@ -56,6 +56,34 @@ Built in the Chunk & Check / Aide Timetable design language (Plus Jakarta Sans +
 soft-blue palette, rounded cards). Not yet matched to CurricHub — share a screenshot to
 retune the colours and type.
 
+### Deploying to Netlify
+
+This repo is a ready-to-deploy Vite + React app (`index.html`, `src/main.jsx`,
+`vite.config.js`, `package.json`), plus a serverless proxy at
+`netlify/functions/claude.mjs` so the **Import** feature keeps working off-platform
+without exposing an API key. `netlify.toml` wires the build (`npm run build` → `dist/`),
+the functions directory, and the SPA redirect.
+
+**Deploy (git-based, recommended):**
+1. In Netlify → **Add new site → Import an existing project**, connect this repo.
+2. Netlify reads `netlify.toml` automatically — no build settings to enter.
+3. Add one environment variable in **Site settings → Environment variables**:
+   `ANTHROPIC_API_KEY` = your Anthropic key (only needed for the AI Import tab; the
+   rest of the app runs without it).
+4. Deploy. Pushes to the connected branch redeploy automatically.
+
+**Deploy (CLI):** `npm install`, then `npx netlify deploy --build --prod` (prompts for
+Netlify login). Set `ANTHROPIC_API_KEY` with `npx netlify env:set ANTHROPIC_API_KEY <key>`.
+
+The AI helper auto-detects its environment: inside a claude.ai artifact it uses the
+keyless proxy; on Netlify it calls `/.netlify/functions/claude`, which holds the key
+server-side. Everything else (all tabs, data persistence via `localStorage`) works with
+no key.
+
+> Same caveat as above: this is still the single-browser prototype — the Netlify deploy
+> makes it publicly reachable but does not add real per-user logins or cross-device sync.
+> That needs the school-approved, Australian-hosted backend the roles UI is built for.
+
 ---
 
 # Aide Timetable — weekly aide + yard duty planner

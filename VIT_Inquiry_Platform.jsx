@@ -67,17 +67,23 @@ const store = {
   },
 };
 
-/* ---------- Anthropic API helper (keyless inside claude.ai, key elsewhere) ---------- */
-let API_KEY = "";
+/* ---------- Anthropic API helper ----------
+   Inside claude.ai the request is proxied keyless. On a real deployment
+   (Netlify etc.) it goes through the /.netlify/functions/claude serverless
+   proxy so the API key stays server-side and is never shipped to the browser. */
 async function askClaude(messages, maxTokens = 1500) {
-  const headers = { "Content-Type": "application/json" };
-  if (API_KEY) {
-    headers["x-api-key"] = API_KEY;
-    headers["anthropic-version"] = "2023-06-01";
-    headers["anthropic-dangerous-direct-browser-access"] = "true";
+  const inClaudeAi = typeof window !== "undefined" && !!window.storage;
+  if (!inClaudeAi) {
+    const res = await fetch("/.netlify/functions/claude", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages, max_tokens: maxTokens }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.error) throw new Error(data.error?.message || `AI request failed (${res.status}). Is ANTHROPIC_API_KEY set in the Netlify site settings?`);
+    return (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
   }
   const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST", headers,
+    method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ model: "claude-sonnet-5", max_tokens: maxTokens, messages }),
   });
   const data = await res.json();

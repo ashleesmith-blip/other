@@ -1,0 +1,11 @@
+# Netlify build + serverless config for the VIT Inquiry Hub
+[build]
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+# SPA fallback — every non-file route serves the app shell
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
