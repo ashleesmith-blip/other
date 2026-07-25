@@ -1,3 +1,60 @@
+# CPS standalone tools
+
+Two standalone React tools in the **Chunk & Check** family. Each is a single
+default-exported `App` component that can be pasted into a claude.ai artifact or
+dropped into any React project, with a pre-built copy under `docs/` for GitHub Pages.
+
+| Tool | Source | Hosted at |
+| --- | --- | --- |
+| **Aide Timetable** | `Aide_Timetable_Creator.jsx` | `docs/index.html` |
+| **Lesson Co-Planner** | `Lesson_CoPlanner.jsx` | `docs/lessons/index.html` |
+
+---
+
+# Lesson Co-Planner — AI-assisted lesson planning
+
+A minimalist co-planning tool (teacher + AI) that produces lesson plans in the CPS
+explicit-teaching template: Hook/PK CFU → Learning Intention → SOLO Success
+Criteria → Unpack → Chunk Examples (Show One / Try One per chunk) → CFU #1 →
+Purposeful Task/s → Reflective Prompt → CFU #2 → Lesson-Specific Adjustments.
+
+**The teacher provides** the lesson brief: lesson type, focus, year level, the
+Learning Intention, the Core SC (one SOLO verb per chunk, with optional
+microskills i / ii), the Core+ extension SC, the **context/lens** the content is
+explored through (e.g. *Visit Melbourne brochures*), and the prior knowledge the
+hook should retrieve.
+
+**The AI co-plans the rest**, field by field or all at once (✦ Co-plan lesson):
+
+- **Hook** — retrieval of the stated prior knowledge with a concrete displayable
+  example and a named check method
+- **Show One (I Do)** per chunk — a worked example grounded in the context, with
+  microskills modelled in order and a think-aloud line
+- **Try One (We Do)** per chunk — a mirrored student attempt; any Try One / CFU
+  can be **reframed for a different check method** (mini whiteboards, Turn & Talk,
+  cold call, warm call, gestures, entry/exit ticket, post-it… or a combination)
+- **CFU #1** — a hinge question built to catch the likely misconception
+- **Purposeful Task/s** — students showcase every Core SC in an engaging,
+  context-rooted way, with a Core+ add-on (never modelled in the mini lesson)
+- **Reflective Prompt** and **CFU #2**
+- **Adjustments** — task-complexity ideas + ‘toolkit’ scaffolds per group
+
+Every field supports **multiple generated options** (pick one, edit inline, ask
+for another). Adjustment **groups are saved per subject** (Groups tab) and
+pre-fill each lesson; Core− groups work towards the first 1–2 SC with scaffolds,
+and an Extension (Core+) row is added automatically.
+
+The **Output** view renders the plan as the familiar doc-style table and
+**⧉ Copy for Google Docs** puts the formatted table on the clipboard, ready to
+paste straight into the planning doc.
+
+AI drafting works keyless inside claude.ai; on the hosted page add an Anthropic
+API key in Settings (kept in the browser only). Plans persist via
+`window.storage` on claude.ai and `localStorage` elsewhere. No student names
+needed anywhere.
+
+---
+
 # Aide Timetable — weekly aide + yard duty planner
 
 A standalone React tool (same family and aesthetic as **Chunk & Check**) for planning a
