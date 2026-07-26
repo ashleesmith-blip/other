@@ -80,6 +80,19 @@ keyless proxy; on Netlify it calls `/.netlify/functions/claude`, which holds the
 server-side. Everything else (all tabs, data persistence via `localStorage`) works with
 no key.
 
+**Back up your data.** All projects live in the browser's `localStorage` — clearing the
+browser or switching device wipes everything. The admin **Users** tab has a **Back up &
+restore** card: download a JSON snapshot regularly, and restore it to reload every
+project. This is the single most important habit until a real backend is in place.
+
+**On the serverless proxy (residual risk).** `netlify/functions/claude.mjs` pins the
+model server-side and caps `max_tokens`, so a discovered function URL can't run pricier
+models or huge requests on your key. It is still an open text-generation endpoint,
+though — there's no way to fully lock it down while the calling code is public browser
+JS (any shared secret would be visible in the bundle). Acceptable for the prototype with
+the model pinned and tokens capped; the proper fix is per-user auth on a hosted backend,
+where the AI calls sit behind a login.
+
 > Same caveat as above: this is still the single-browser prototype — the Netlify deploy
 > makes it publicly reachable but does not add real per-user logins or cross-device sync.
 > That needs the school-approved, Australian-hosted backend the roles UI is built for.
