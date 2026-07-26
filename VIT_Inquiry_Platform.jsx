@@ -913,9 +913,8 @@ ${text.slice(0, 12000)}` }] }], 1600);
       setTab("students");
     } else if (target.startsWith("log:")) {
       const lt = target.slice(4); const entry = { id: uid(), type: lt, date: todayISO(), name: r.name || "", regNo: "", signed: false, visitNo: "", prompt: "" };
-      LOG_TYPES[lt].fields.forEach(([k]) => (entry[k] = k === "notes" ? (r.notes || text.trim()) : (r.notes || "")));
-      if (lt === "observation") entry.saw = r.notes || text.trim();
-      if (lt === "conversation") entry.discussed = r.notes || text.trim();
+      const primary = LOG_TYPES[lt].fields[0][0]; const val = r.notes || text.trim();
+      LOG_TYPES[lt].fields.forEach(([k]) => (entry[k] = k === primary ? val : ""));
       update((pr) => ({ logs: [entry, ...pr.logs] }));
       setTab("log");
     }
@@ -965,7 +964,6 @@ function Timeline() {
   const ms = milestoneStatus(p, milestones);
   const setDue = (id, due) => setMilestones((list) => list.map((m) => (m.id === id ? { ...m, due } : m)));
   const reflow = () => { if (!program.startDate) return; setMilestones((list) => list.map((m) => ({ ...m, due: addDays(program.startDate, (m.week || 1) * 7) }))); };
-  const stateStyle = { done: TONES.green, overdue: TONES.red, soon: TONES.amber, pending: {} };
   const stateLabel = { done: "Done", overdue: "Overdue", soon: "Due soon", pending: "Upcoming" };
   return (
     <div style={{ display: "grid", gap: 16 }}>
@@ -1077,6 +1075,23 @@ function Users({ state, setState }) {
   };
   const setU = (id, patch) => setState((s) => ({ ...s, users: s.users.map((u) => (u.id === id ? { ...u, ...patch } : u)) }));
   const del = (id) => { if (!window.confirm("Remove this user and their project data?")) return; setState((s) => ({ ...s, users: s.users.filter((u) => u.id !== id), projects: s.projects.filter((p) => p.ownerId !== id) })); };
+  const restoreRef = useRef(null);
+  const backup = () => {
+    const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = `vit-inquiry-hub-backup-${todayISO()}.json`;
+    a.click(); URL.revokeObjectURL(a.href);
+  };
+  const restore = async (e) => {
+    const file = e.target.files?.[0]; if (restoreRef.current) restoreRef.current.value = "";
+    if (!file) return;
+    try {
+      const parsed = JSON.parse(await file.text());
+      if (!parsed?.users || !Array.isArray(parsed.projects)) throw new Error("bad file");
+      if (!window.confirm("Replace ALL current data in this browser with the backup? This can't be undone.")) return;
+      setState({ viewProjectId: null, program: { startDate: "" }, milestones: [], active: null, ...parsed });
+    } catch { window.alert("That doesn't look like a VIT Inquiry Hub backup file."); }
+  };
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <div style={S.card}>
@@ -1107,6 +1122,17 @@ function Users({ state, setState }) {
               <button style={{ ...S.btnGhost, fontSize: 11.5, color: T.red, borderColor: T.redLine }} onClick={() => del(u.id)}>Remove</button>
             </div>
           ))}
+        </div>
+      </div>
+      <div style={{ ...S.card, background: T.amberSoft, borderColor: T.amberLine }}>
+        <SectionTitle eyebrow="Prototype safeguard" title="Back up & restore"
+          right={<div style={{ display: "flex", gap: 8 }}>
+            <button style={S.btnGhost} onClick={() => restoreRef.current?.click()}>↥ Restore</button>
+            <input ref={restoreRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={restore} />
+            <button style={S.btn} onClick={backup}>↧ Download backup</button>
+          </div>} />
+        <div style={{ fontFamily: F.body, fontSize: 12.5, color: T.amber, lineHeight: 1.6 }}>
+          All data lives in <b>this browser only</b>. Download a backup regularly — clearing the browser, or switching device, otherwise loses every project. Restoring replaces everything currently in this browser with the file.
         </div>
       </div>
     </div>

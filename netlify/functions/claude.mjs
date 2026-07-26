@@ -21,6 +21,14 @@ export default async (req) => {
       status: 400, headers: { "Content-Type": "application/json" },
     });
   }
+  // Guard the shared key: the model is pinned server-side (a client can't request
+  // a pricier model) and output is capped, limiting cost if the endpoint is abused.
+  const maxTokens = Math.min(Math.max(Number(body.max_tokens) || 1500, 1), 4096);
+  if (!Array.isArray(body.messages) || body.messages.length === 0) {
+    return new Response(JSON.stringify({ error: { message: "messages must be a non-empty array." } }), {
+      status: 400, headers: { "Content-Type": "application/json" },
+    });
+  }
   const upstream = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -29,9 +37,9 @@ export default async (req) => {
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: body.model || "claude-sonnet-5",
-      max_tokens: body.max_tokens || 1500,
-      messages: body.messages || [],
+      model: "claude-sonnet-5",
+      max_tokens: maxTokens,
+      messages: body.messages,
     }),
   });
   const text = await upstream.text();
