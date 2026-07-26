@@ -1,0 +1,41 @@
+<svg viewBox="0 0 300 300" xmlns="http://www.w3.org/2000/svg">
+  <!-- background -->
+  <circle cx="150" cy="150" r="130" fill="#f0b429"/>
+
+  <!-- ground shadow -->
+  <ellipse cx="150" cy="244" rx="65" ry="9" fill="#1c1c1c"/>
+
+  <!-- side panel (receding face, gives 3/4 angle) -->
+  <path d="M70,100 L95,90 L95,195 L70,207 Z" fill="#c9c2b4" stroke="#1c1c1c" stroke-width="3"/>
+  <path d="M70,207 L95,195 L95,211 L70,222 Z" fill="#7d2b4d" stroke="#1c1c1c" stroke-width="3"/>
+  <path d="M76,108 L92,102 L92,150 L78,155 Z" fill="#7ab8e6" stroke="#1c1c1c" stroke-width="2"/>
+
+  <!-- front face (main body) -->
+  <path d="M95,90 L216,90 Q230,90 230,104 L230,181 Q230,195 216,195 L95,195 Z" fill="#f2e8dc" stroke="#1c1c1c" stroke-width="3"/>
+  <rect x="95" y="195" width="135" height="16" fill="#7d2b4d" stroke="#1c1c1c" stroke-width="3"/>
+  <line x1="180" y1="152" x2="180" y2="195" stroke="#1c1c1c" stroke-width="2"/>
+  <circle cx="112" cy="182" r="7" fill="#3a4c5e" stroke="#1c1c1c" stroke-width="2"/>
+
+  <!-- wheels -->
+  <circle cx="130" cy="224" r="13" fill="#c9c2b4" stroke="#1c1c1c" stroke-width="3"/>
+  <circle cx="195" cy="224" r="13" fill="#c9c2b4" stroke="#1c1c1c" stroke-width="3"/>
+  <circle cx="130" cy="224" r="4" fill="#3a4c5e"/>
+  <circle cx="195" cy="224" r="4" fill="#3a4c5e"/>
+
+  <!-- front windows -->
+  <rect x="106" y="104" width="44" height="44" rx="5" fill="#7ab8e6" stroke="#1c1c1c" stroke-width="2"/>
+  <rect x="160" y="104" width="56" height="44" rx="5" fill="#7ab8e6" stroke="#1c1c1c" stroke-width="2"/>
+
+  <!-- destination sign -->
+  <rect x="118" y="93" width="50" height="10" rx="2" fill="#3a4c5e" stroke="#1c1c1c" stroke-width="2"/>
+
+  <!-- pantograph -->
+  <line x1="185" y1="90" x2="185" y2="55" stroke="#1c1c1c" stroke-width="3"/>
+  <rect x="170" y="48" width="30" height="8" rx="2" fill="#3a4c5e" stroke="#1c1c1c" stroke-width="2"/>
+
+  <!-- highlight -->
+  <path d="M162,106 L182,106 L162,126 Z" fill="#ffffff"/>
+
+  <!-- frame outline (drawn last, on top) -->
+  <circle cx="150" cy="150" r="130" fill="none" stroke="#1c1c1c" stroke-width="6"/>
+</svg>
