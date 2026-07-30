@@ -56,46 +56,57 @@ Built in the Chunk & Check / Aide Timetable design language (Plus Jakarta Sans +
 soft-blue palette, rounded cards). Not yet matched to CurricHub — share a screenshot to
 retune the colours and type.
 
-### Deploying to Netlify
+### Deploying to Netlify + Supabase (real multi-user)
 
 This repo is a ready-to-deploy Vite + React app (`index.html`, `src/main.jsx`,
-`vite.config.js`, `package.json`), plus a serverless proxy at
-`netlify/functions/claude.mjs` so the **Import** feature keeps working off-platform
-without exposing an API key. `netlify.toml` wires the build (`npm run build` → `dist/`),
-the functions directory, and the SPA redirect.
+`vite.config.js`, `package.json`) with two backends baked in:
 
-**Deploy (git-based, recommended):**
-1. In Netlify → **Add new site → Import an existing project**, connect this repo.
-2. Netlify reads `netlify.toml` automatically — no build settings to enter.
-3. Add one environment variable in **Site settings → Environment variables**:
-   `ANTHROPIC_API_KEY` = your Anthropic key (only needed for the AI Import tab; the
-   rest of the app runs without it).
-4. Deploy. Pushes to the connected branch redeploy automatically.
+- **Cloud mode** — set `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` and it runs on
+  **Supabase**: real email/password logins, a shared Postgres database with row-level
+  security, and cross-device sync. First sign-up becomes admin.
+- **Local mode** — no Supabase env vars (e.g. pasted into a claude.ai artifact): the
+  original simulated-login, this-browser-only storage. Same UI.
 
-**Deploy (CLI):** `npm install`, then `npx netlify deploy --build --prod` (prompts for
-Netlify login). Set `ANTHROPIC_API_KEY` with `npx netlify env:set ANTHROPIC_API_KEY <key>`.
+Plus a serverless proxy at `netlify/functions/claude.mjs` so the **Import** feature
+works off-platform without exposing the API key. `netlify.toml` wires the build, the
+functions directory, and the SPA redirect.
 
-The AI helper auto-detects its environment: inside a claude.ai artifact it uses the
-keyless proxy; on Netlify it calls `/.netlify/functions/claude`, which holds the key
-server-side. Everything else (all tabs, data persistence via `localStorage`) works with
-no key.
+**→ Full step-by-step: [`SUPABASE_SETUP.md`](SUPABASE_SETUP.md)** (create the project,
+run `supabase/schema.sql`, set env vars, deploy). The short version:
 
-**Back up your data.** All projects live in the browser's `localStorage` — clearing the
-browser or switching device wipes everything. The admin **Users** tab has a **Back up &
-restore** card: download a JSON snapshot regularly, and restore it to reload every
-project. This is the single most important habit until a real backend is in place.
+1. Create a Supabase project (Sydney region for AU data residency), run
+   `supabase/schema.sql` in its SQL editor, turn **Confirm email** off for now.
+2. Netlify → **Add new site → Import an existing project** → connect this repo (Netlify
+   reads `netlify.toml`, no build settings to enter).
+3. Add env vars in **Site settings → Environment variables**: `VITE_SUPABASE_URL`,
+   `VITE_SUPABASE_ANON_KEY`, and `ANTHROPIC_API_KEY` (the last only for the AI Import
+   tab). `VITE_` vars are baked in at build time — redeploy after adding them.
+4. Open the site, create the first account (→ admin), then assign roles/mentors in the
+   **Users** tab.
+
+**CLI alternative:** `npm install`, then `npx netlify deploy --build --prod`; set vars
+with `npx netlify env:set VITE_SUPABASE_URL <url>` (and the other two).
+
+The AI helper auto-detects its environment: inside a claude.ai artifact it's keyless; on
+Netlify it calls `/.netlify/functions/claude`, which holds the key server-side.
+
+**Back up your data (local mode only).** Without Supabase, all projects live in one
+browser's `localStorage` — the admin **Users** tab has a **Back up & restore** card
+(download/restore a JSON snapshot). In cloud mode data is in Supabase, so that card is
+hidden; back up via Supabase's own database backups instead.
 
 **On the serverless proxy (residual risk).** `netlify/functions/claude.mjs` pins the
 model server-side and caps `max_tokens`, so a discovered function URL can't run pricier
 models or huge requests on your key. It is still an open text-generation endpoint,
 though — there's no way to fully lock it down while the calling code is public browser
-JS (any shared secret would be visible in the bundle). Acceptable for the prototype with
-the model pinned and tokens capped; the proper fix is per-user auth on a hosted backend,
-where the AI calls sit behind a login.
+JS. Acceptable with the model pinned and tokens capped; a stricter version would check
+the Supabase session on the function side before calling Anthropic.
 
-> Same caveat as above: this is still the single-browser prototype — the Netlify deploy
-> makes it publicly reachable but does not add real per-user logins or cross-device sync.
-> That needs the school-approved, Australian-hosted backend the roles UI is built for.
+> **Data-privacy sign-off still required.** Cloud mode gives real logins and
+> cross-device sync, and the Sydney region keeps data in Australia — but Supabase is a
+> third-party US company. Before storing anything beyond de-identified Student A/B/C
+> notes, get this checked against your school's / the department's data-privacy
+> requirements. The software is ready; the institutional approval is the remaining step.
 
 ---
 

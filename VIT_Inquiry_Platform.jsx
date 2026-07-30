@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, createContext, useContext } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback, createContext, useContext } from "react";
 
 /* ============================================================
    VIT INQUIRY HUB — a platform for the graduate-registration
@@ -453,7 +453,7 @@ const ThreadFor = ({ threadId }) => { const { ro, project } = useApp(); const ha
    TAB: OVERVIEW
    ============================================================ */
 function Overview() {
-  const { project: p, update, setTab, ro, milestones } = useApp();
+  const { project: p, update, setTab, ro, milestones, cloud } = useApp();
   const reqs = requirements(p);
   const done = reqs.filter((r) => r.done).length;
   const next = reqs.find((r) => !r.done);
@@ -528,7 +528,7 @@ function Overview() {
             </div>
           </div>
           <div style={{ ...S.card, background: T.amberSoft, borderColor: T.amberLine }}>
-            <div style={{ fontFamily: F.body, fontSize: 12.5, color: T.amber, lineHeight: 1.6 }}><b>Privacy:</b> refer to students as Student A, B, C… — never real names. Prototype: single browser, no cross-device sync yet — export regularly.</div>
+            <div style={{ fontFamily: F.body, fontSize: 12.5, color: T.amber, lineHeight: 1.6 }}><b>Privacy:</b> refer to students as Student A, B, C… — never real names.{cloud ? " Your work is saved to the school's Supabase project and synced across devices." : " Prototype: single browser, no cross-device sync yet — export regularly."}</div>
           </div>
         </div>
       </div>
@@ -1063,7 +1063,7 @@ const Stat = ({ label, value, tone }) => (
 /* ============================================================
    USERS — admin manages staff & mentor assignments
    ============================================================ */
-function Users({ state, setState }) {
+function Users({ state, setState, cloud }) {
   const { users, projects } = state;
   const [name, setName] = useState(""); const [role, setRole] = useState("graduate"); const [reg, setReg] = useState("");
   const mentors = users.filter((u) => u.role === "mentor" || u.role === "admin");
@@ -1094,15 +1094,22 @@ function Users({ state, setState }) {
   };
   return (
     <div style={{ display: "grid", gap: 16 }}>
-      <div style={S.card}>
-        <SectionTitle eyebrow="Admin" title="Staff & mentors" />
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
-          <div style={{ flex: "1 1 180px" }}><label style={S.label}>Name</label><input style={S.input} value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" onKeyDown={(e) => e.key === "Enter" && add()} /></div>
-          <div><label style={S.label}>Role</label><select style={{ ...S.input, width: 150 }} value={role} onChange={(e) => setRole(e.target.value)}><option value="graduate">Graduate</option><option value="mentor">Mentor</option><option value="admin">Admin</option></select></div>
-          <div><label style={S.label}>VIT reg. no.</label><input style={{ ...S.input, width: 130 }} value={reg} onChange={(e) => setReg(e.target.value)} placeholder="optional" /></div>
-          <button style={S.btn} onClick={add}>+ Add</button>
+      {cloud ? (
+        <div style={S.card}>
+          <SectionTitle eyebrow="Admin" title="Staff & roles" />
+          <div style={{ fontFamily: F.body, fontSize: 12.5, color: T.sub, lineHeight: 1.6 }}>Staff create their own account at the sign-in screen. Set each person's <b>role</b> and (for graduates) their <b>mentor</b> below. The very first account to sign up becomes admin automatically.</div>
         </div>
-      </div>
+      ) : (
+        <div style={S.card}>
+          <SectionTitle eyebrow="Admin" title="Staff & mentors" />
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+            <div style={{ flex: "1 1 180px" }}><label style={S.label}>Name</label><input style={S.input} value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" onKeyDown={(e) => e.key === "Enter" && add()} /></div>
+            <div><label style={S.label}>Role</label><select style={{ ...S.input, width: 150 }} value={role} onChange={(e) => setRole(e.target.value)}><option value="graduate">Graduate</option><option value="mentor">Mentor</option><option value="admin">Admin</option></select></div>
+            <div><label style={S.label}>VIT reg. no.</label><input style={{ ...S.input, width: 130 }} value={reg} onChange={(e) => setReg(e.target.value)} placeholder="optional" /></div>
+            <button style={S.btn} onClick={add}>+ Add</button>
+          </div>
+        </div>
+      )}
       <div style={S.card}>
         <div style={{ display: "grid", gap: 10 }}>
           {users.map((u) => (
@@ -1112,7 +1119,11 @@ function Users({ state, setState }) {
                 <div style={{ fontFamily: F.display, fontSize: 14, fontWeight: 700, color: T.ink }}>{u.name}</div>
                 <div style={{ fontFamily: F.body, fontSize: 12, color: T.sub }}>{u.vitRegNo ? `VIT ${u.vitRegNo}` : "no reg no."}{u.role === "graduate" && (() => { const p = projects.find((x) => x.ownerId === u.id); return p ? ` · ${Math.round(progressOf(p) * 100)}% complete` : ""; })()}</div>
               </div>
-              <Pill tone={u.role === "admin" ? "purple" : u.role === "mentor" ? "amber" : "blue"} style={{ fontSize: 11 }}>{u.role}</Pill>
+              <select style={{ ...S.input, width: 120 }} value={u.role} onChange={(e) => setU(u.id, { role: e.target.value })} title="Role">
+                <option value="graduate">graduate</option>
+                <option value="mentor">mentor</option>
+                <option value="admin">admin</option>
+              </select>
               {u.role === "graduate" && (
                 <select style={{ ...S.input, width: 180 }} value={u.mentorId || ""} onChange={(e) => setU(u.id, { mentorId: e.target.value })}>
                   <option value="">— assign mentor —</option>
@@ -1124,17 +1135,19 @@ function Users({ state, setState }) {
           ))}
         </div>
       </div>
-      <div style={{ ...S.card, background: T.amberSoft, borderColor: T.amberLine }}>
-        <SectionTitle eyebrow="Prototype safeguard" title="Back up & restore"
-          right={<div style={{ display: "flex", gap: 8 }}>
-            <button style={S.btnGhost} onClick={() => restoreRef.current?.click()}>↥ Restore</button>
-            <input ref={restoreRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={restore} />
-            <button style={S.btn} onClick={backup}>↧ Download backup</button>
-          </div>} />
-        <div style={{ fontFamily: F.body, fontSize: 12.5, color: T.amber, lineHeight: 1.6 }}>
-          All data lives in <b>this browser only</b>. Download a backup regularly — clearing the browser, or switching device, otherwise loses every project. Restoring replaces everything currently in this browser with the file.
+      {!cloud && (
+        <div style={{ ...S.card, background: T.amberSoft, borderColor: T.amberLine }}>
+          <SectionTitle eyebrow="Prototype safeguard" title="Back up & restore"
+            right={<div style={{ display: "flex", gap: 8 }}>
+              <button style={S.btnGhost} onClick={() => restoreRef.current?.click()}>↥ Restore</button>
+              <input ref={restoreRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={restore} />
+              <button style={S.btn} onClick={backup}>↧ Download backup</button>
+            </div>} />
+          <div style={{ fontFamily: F.body, fontSize: 12.5, color: T.amber, lineHeight: 1.6 }}>
+            All data lives in <b>this browser only</b>. Download a backup regularly — clearing the browser, or switching device, otherwise loses every project. Restoring replaces everything currently in this browser with the file.
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -1199,29 +1212,10 @@ const GRAD_TABS = [
 ];
 const REVIEW_TABS = GRAD_TABS.filter((t) => t.id !== "import"); // reviewers don't import into someone else's evidence
 
-export default function App() {
-  const [state, setState] = useState(null);
+/* ---------- inner shell — header, nav, routing, context (shared by local + cloud) ---------- */
+function Shell({ state, setState, me, onExit, exitLabel, cloud }) {
   const [tab, setTab] = useState("overview");
-
-  useEffect(() => { (async () => {
-    const raw = await store.get(KEY);
-    if (raw) { try { const s = JSON.parse(raw); if (s?.users) { setState({ viewProjectId: null, program: { startDate: "" }, milestones: [], ...s }); return; } } catch {} }
-    setState({ users: [], active: null, projects: [], milestones: DEFAULT_MILESTONES.map((m) => ({ ...m, id: uid(), due: "" })), program: { startDate: "" }, viewProjectId: null });
-  })(); }, []);
-  useEffect(() => { if (!state) return; const t = setTimeout(() => store.set(KEY, JSON.stringify(state)), 400); return () => clearTimeout(t); }, [state]);
-  // safety: every graduate always owns exactly one project
-  useEffect(() => {
-    if (!state) return;
-    const missing = state.users.filter((u) => u.role === "graduate" && !state.projects.some((p) => p.ownerId === u.id));
-    if (missing.length) setState((s) => ({ ...s, projects: [...s.projects, ...missing.map((u) => ({ ...emptyProject(u.id), name: u.name }))] }));
-  }, [state?.users.length]);
-  if (!state) return null;
-
-  const me = state.users.find((u) => u.id === state.active) || null;
-  if (!me) return <Login users={state.users} onPick={(id) => { setState((s) => ({ ...s, active: id, viewProjectId: null })); setTab("overview"); }} onSeed={() => setState(seedProgram())} />;
-
   const isReviewer = me.role === "admin" || me.role === "mentor";
-  // which project is in view: graduate → own; reviewer → the one they opened
   const ownProject = state.projects.find((p) => p.ownerId === me.id);
   const viewProject = isReviewer ? state.projects.find((p) => p.id === state.viewProjectId) : ownProject;
   const ro = isReviewer && !!viewProject; // reviewers can't edit graduate content, only feedback
@@ -1232,9 +1226,8 @@ export default function App() {
   const setMilestones = (fn) => setState((s) => ({ ...s, milestones: typeof fn === "function" ? fn(s.milestones) : fn }));
   const setProgram = (program) => setState((s) => ({ ...s, program }));
 
-  const ctx = { me, users: state.users, project: viewProject ? { ...viewProject, ownerName: owner?.name } : null, update: updateProject, postFeedback, ro, setTab, milestones: state.milestones, setMilestones, program: state.program, setProgram };
+  const ctx = { me, users: state.users, project: viewProject ? { ...viewProject, ownerName: owner?.name } : null, update: updateProject, postFeedback, ro, setTab, milestones: state.milestones, setMilestones, program: state.program, setProgram, cloud };
 
-  // reviewer with no project open → dashboard / users
   const showWorkspace = !!viewProject;
   const tabs = isReviewer ? REVIEW_TABS : GRAD_TABS;
   const navItems = isReviewer && !showWorkspace ? (me.role === "admin" ? [{ id: "dashboard", label: "Dashboard", icon: "📋" }, { id: "users", label: "Users", icon: "👥" }, { id: "timeline", label: "Timeline", icon: "🗓" }] : [{ id: "dashboard", label: "My graduates", icon: "📋" }, { id: "timeline", label: "Timeline", icon: "🗓" }]) : tabs;
@@ -1259,8 +1252,8 @@ export default function App() {
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             {showWorkspace && isReviewer && <button style={S.btnGhost} onClick={() => setState((s) => ({ ...s, viewProjectId: null }))}>← All graduates</button>}
             {ro && <Pill tone="amber" style={{ fontSize: 11 }}>👁 Review mode · feedback only</Pill>}
-            <Avatar user={me} />
-            <button style={S.btnGhost} onClick={() => setState((s) => ({ ...s, active: null, viewProjectId: null }))}>Switch user</button>
+            <span style={{ display: "flex", alignItems: "center", gap: 6 }}><Avatar user={me} size={30} /><span style={{ fontFamily: F.body, fontSize: 12.5, fontWeight: 600, color: T.sub }}>{me.name}</span></span>
+            <button style={S.btnGhost} onClick={onExit}>{exitLabel}</button>
           </div>
         </header>
 
@@ -1272,7 +1265,7 @@ export default function App() {
 
         {/* reviewer home */}
         {isReviewer && !showWorkspace && effTab === "dashboard" && <Dashboard state={state} me={me} openProject={(id) => { setState((s) => ({ ...s, viewProjectId: id })); setTab("overview"); }} />}
-        {isReviewer && !showWorkspace && effTab === "users" && me.role === "admin" && <Users state={state} setState={setState} />}
+        {isReviewer && !showWorkspace && effTab === "users" && me.role === "admin" && <Users state={state} setState={setState} cloud={cloud} />}
         {isReviewer && !showWorkspace && effTab === "timeline" && <Timeline />}
 
         {/* workspace (graduate own, or reviewer viewing a graduate) */}
@@ -1289,4 +1282,133 @@ export default function App() {
     </div>
     </Ctx.Provider>
   );
+}
+
+/* ---------- LOCAL driver — simulated logins, localStorage (artifact / no-backend) ---------- */
+function LocalApp() {
+  const [state, setState] = useState(null);
+  useEffect(() => { (async () => {
+    const raw = await store.get(KEY);
+    if (raw) { try { const s = JSON.parse(raw); if (s?.users) { setState({ viewProjectId: null, program: { startDate: "" }, milestones: [], ...s }); return; } } catch {} }
+    setState({ users: [], active: null, projects: [], milestones: DEFAULT_MILESTONES.map((m) => ({ ...m, id: uid(), due: "" })), program: { startDate: "" }, viewProjectId: null });
+  })(); }, []);
+  useEffect(() => { if (!state) return; const t = setTimeout(() => store.set(KEY, JSON.stringify(state)), 400); return () => clearTimeout(t); }, [state]);
+  useEffect(() => {
+    if (!state) return;
+    const missing = state.users.filter((u) => u.role === "graduate" && !state.projects.some((p) => p.ownerId === u.id));
+    if (missing.length) setState((s) => ({ ...s, projects: [...s.projects, ...missing.map((u) => ({ ...emptyProject(u.id), name: u.name }))] }));
+  }, [state?.users.length]);
+  if (!state) return null;
+  const me = state.users.find((u) => u.id === state.active) || null;
+  if (!me) return <Login users={state.users} onPick={(id) => setState((s) => ({ ...s, active: id, viewProjectId: null }))} onSeed={() => setState(seedProgram())} />;
+  return <Shell key={me.id} state={state} setState={setState} me={me} exitLabel="Switch user" cloud={false}
+    onExit={() => setState((s) => ({ ...s, active: null, viewProjectId: null }))} />;
+}
+
+/* ---------- CLOUD driver — real auth + Supabase (cross-device, multi-user) ---------- */
+function CloudAuth({ backend }) {
+  const [mode, setMode] = useState("in"); const [email, setEmail] = useState(""); const [pw, setPw] = useState(""); const [name, setName] = useState("");
+  const [err, setErr] = useState(""); const [msg, setMsg] = useState(""); const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    setErr(""); setMsg(""); setBusy(true);
+    try {
+      if (mode === "up") {
+        if (!name.trim()) throw new Error("Please enter your name.");
+        const { error } = await backend.signUp({ email: email.trim(), password: pw, name: name.trim() });
+        if (error) throw error;
+        setMsg("Account created. If email confirmation is on, confirm via the email first, then sign in."); setMode("in"); setPw("");
+      } else {
+        const { error } = await backend.signIn({ email: email.trim(), password: pw });
+        if (error) throw error;
+      }
+    } catch (e) { setErr(e.message || "Something went wrong."); } finally { setBusy(false); }
+  };
+  return (
+    <div style={{ minHeight: "100vh", background: T.bg, display: "grid", placeItems: "center", padding: 20 }}>
+      <style>{GLOBAL_CSS}</style>
+      <div style={{ ...S.card, maxWidth: 420, width: "100%", padding: 28 }}>
+        <div style={S.eyebrow}>CPS · provisional → full VIT registration</div>
+        <h1 style={{ fontFamily: F.display, fontSize: 26, fontWeight: 800, color: T.ink, margin: "4px 0 6px" }}>VIT Inquiry Hub</h1>
+        <div style={{ fontFamily: F.body, fontSize: 13, color: T.sub, marginBottom: 18, lineHeight: 1.6 }}>{mode === "in" ? "Sign in with your school email." : "Create your account with your school email. The first account becomes the program admin."}</div>
+        <div style={{ display: "grid", gap: 10 }}>
+          {mode === "up" && <div><label style={S.label}>Full name</label><input style={S.input} value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" /></div>}
+          <div><label style={S.label}>Email</label><input style={S.input} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@education.vic.gov.au" onKeyDown={(e) => e.key === "Enter" && submit()} /></div>
+          <div><label style={S.label}>Password</label><input style={S.input} type="password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder="••••••••" onKeyDown={(e) => e.key === "Enter" && submit()} /></div>
+          {err && <div style={{ fontFamily: F.body, fontSize: 12.5, color: T.red, background: T.redSoft, border: `1px solid ${T.redLine}`, borderRadius: 10, padding: "8px 12px" }}>{err}</div>}
+          {msg && <div style={{ fontFamily: F.body, fontSize: 12.5, color: T.green, background: T.greenSoft, border: `1px solid ${T.greenLine}`, borderRadius: 10, padding: "8px 12px" }}>{msg}</div>}
+          <button style={{ ...S.btn, marginTop: 4 }} onClick={submit} disabled={busy || !email.trim() || !pw}>{busy ? "…" : mode === "in" ? "Sign in" : "Create account"}</button>
+          <button style={{ ...S.btnGhost, fontSize: 12.5 }} onClick={() => { setMode(mode === "in" ? "up" : "in"); setErr(""); setMsg(""); }}>{mode === "in" ? "New here? Create an account" : "Already have an account? Sign in"}</button>
+        </div>
+        <div style={{ fontFamily: F.body, fontSize: 11.5, color: T.faint, marginTop: 16, lineHeight: 1.5 }}>Refer to students as Student A/B/C — never real names.</div>
+      </div>
+    </div>
+  );
+}
+function CloudApp({ backend }) {
+  const [phase, setPhase] = useState("loading"); // loading | auth | ready
+  const [userId, setUserId] = useState(null);
+  const [state, setState] = useState(null);
+  const lastSync = useRef(null);
+
+  useEffect(() => {
+    let unsub;
+    (async () => {
+      const u = await backend.getSession();
+      setUserId(u?.id || null); setPhase(u ? "ready" : "auth");
+      unsub = backend.onAuthChange((u2) => { setUserId(u2?.id || null); setPhase(u2 ? "ready" : "auth"); if (!u2) { setState(null); lastSync.current = null; } });
+    })();
+    return () => { if (unsub) unsub(); };
+  }, [backend]);
+
+  const reload = useCallback(async () => {
+    if (!userId) return;
+    let data;
+    try { data = await backend.load(); } catch (e) { console.error("load failed", e); return; }
+    setState((prev) => {
+      let next = { ...data, active: userId, viewProjectId: prev?.viewProjectId ?? null };
+      const meNow = next.users.find((u) => u.id === userId);
+      if (meNow?.role === "graduate" && !next.projects.some((p) => p.ownerId === userId)) {
+        next = { ...next, projects: [...next.projects, { ...emptyProject(userId), name: meNow.name }] };
+      }
+      lastSync.current = { users: next.users, projects: next.projects, milestones: next.milestones, program: next.program };
+      return next;
+    });
+  }, [userId, backend]);
+
+  useEffect(() => { if (phase === "ready") reload(); }, [phase, reload]);
+  // pull latest when the tab regains focus (cheap cross-device refresh)
+  useEffect(() => {
+    if (phase !== "ready") return;
+    const h = () => reload();
+    window.addEventListener("focus", h);
+    return () => window.removeEventListener("focus", h);
+  }, [phase, reload]);
+  // push local edits to Supabase (debounced, per-row diff)
+  useEffect(() => {
+    if (phase !== "ready" || !state) return;
+    const t = setTimeout(async () => {
+      const prev = lastSync.current;
+      try { await backend.sync(prev, state); } catch (e) { console.error("sync failed", e); }
+      lastSync.current = { users: state.users, projects: state.projects, milestones: state.milestones, program: state.program };
+    }, 700);
+    return () => clearTimeout(t);
+  }, [state, phase, backend]);
+
+  if (phase === "loading") return null;
+  if (phase === "auth" || !userId) return <CloudAuth backend={backend} />;
+  if (!state) return null;
+  const me = state.users.find((u) => u.id === userId);
+  if (!me) return (
+    <div style={{ minHeight: "100vh", background: T.bg, display: "grid", placeItems: "center", fontFamily: F.body, color: T.sub }}>
+      <style>{GLOBAL_CSS}</style>
+      <div style={{ textAlign: "center" }}><div style={{ fontSize: 22, marginBottom: 8 }}>⏳</div>Setting up your profile…<br /><button style={{ ...S.btnGhost, marginTop: 14 }} onClick={() => backend.signOut()}>Sign out</button></div>
+    </div>
+  );
+  return <Shell key={me.id} state={state} setState={setState} me={me} exitLabel="Sign out" cloud={true}
+    onExit={async () => { try { await backend.signOut(); } catch {} }} />;
+}
+
+/* ---------- entry — cloud if a Supabase backend was injected (build), else local ---------- */
+export default function App({ backend } = {}) {
+  return backend && backend.kind === "cloud" ? <CloudApp backend={backend} /> : <LocalApp />;
 }
