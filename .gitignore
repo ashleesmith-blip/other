@@ -1,0 +1,8 @@
+node_modules/
+package-lock.json
+
+# Class lists and results hold student names — keep them out of the repo.
+students_import.json
+students_paste.txt
+*-students.json
+athletics-students.json

@@ -1,14 +1,19 @@
+# index.html is prebuilt and fully self-contained (React and the app are inlined),
+# so the deploy is a copy — no npm install, no build tooling on Netlify.
+# Rebuild locally with `node build.js` after editing anything in src/.
+
 [build]
-  publish = "public"
-  command = "mkdir -p public && cp index.html public/ && cp students_import.json public/"
+  publish = "dist"
+  command = "mkdir -p dist && cp index.html dist/"
 
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
 
-[context.production]
-  environment = { NODE_ENV = "production" }
-
-[context.deploy-preview]
-  environment = { NODE_ENV = "development" }
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "SAMEORIGIN"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "no-referrer"

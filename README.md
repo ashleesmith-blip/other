@@ -1,3 +1,58 @@
+This repo holds two standalone school tools. Both keep their data in the browser only.
+
+- **[Athletics Manager](#athletics-manager)** — house athletics, records and the district team (P–6).
+- **[Aide Timetable](#aide-timetable--weekly-aide--yard-duty-planner)** — weekly aide + yard duty planner.
+
+---
+
+# Athletics Manager
+
+House athletics carnival day through to picking the district team, for a P–6 school.
+
+**Deployable file:** `index.html` — open it from disk, or drag it onto
+[Netlify Drop](https://app.netlify.com/drop). React and the whole app are inlined, so it makes
+**no external requests** and works on a locked-down school network or with no internet at all.
+
+**Source:** `src/athletics.jsx` + `src/styles.css`. After editing either, run `node build.js`
+to regenerate `index.html`.
+
+## Tabs
+
+| Tab | What it does |
+| --- | --- |
+| **Events** | The standard program is pre-loaded — 100m, 200m, 800m, 1500m, 80m hurdles, long/triple/high jump, shot put, discus, 4x100m relay — each with the year levels it runs at and whether the winner is the fastest or the furthest. Add your own. |
+| **Houses** | House cards with student counts and live points (3/2/1 for the first three places in every event and division), plus a ranked bar chart. |
+| **Students** | The whole list, filterable by year, house and name. Beep test scores are editable straight from the table. |
+| **Import** | Paste four columns out of Excel — **Name, Gender, Homegroup, House** — or load a `.json`/`.csv`. Year level is read from the homegroup code (`I3P` → 3), houses named in the file are created if they don't exist, and re-importing skips anyone already on the list. Everything previews before it applies. There's a download button here to back the list up. |
+| **Results** | Pick event + year + gender and type times down the list. Placings rank themselves as you type, first three shaded. Handles `m:ss.s` for the 800m and 1500m. |
+| **District** | The interesting one — see below. |
+
+## Picking the district team
+
+Every event and division sends its top finisher (configurable), but no student may run more than
+**two individual events**. Relays sit outside the cap.
+
+When someone wins more than two, the tab flags them and asks which two they'll run. Every event
+they let go is offered to the next finisher — who may now be over the cap themselves, so it
+cascades until it settles. Change a pick and the team sheet re-derives instantly; **How the spots
+moved** shows who was passed over and why.
+
+So a student who wins six events picks two, and the other four go to the runners-up automatically
+rather than being worked out by hand.
+
+## Privacy
+
+Everything is stored in one browser via `localStorage` — nothing is sent anywhere, and there is no
+server or login. That also means it isn't shared between devices, and clearing your browsing data
+erases it, so use the download button on the Import tab to keep a backup.
+
+Class lists are **not** committed to this repo (see `.gitignore`) and should not be. Use first name
+plus surname initial. A deployed Netlify URL is publicly reachable by anyone who has the link, so
+don't import a real class list into a public deploy — either keep it to your own machine, or put
+the site behind Netlify's password protection first.
+
+---
+
 # Aide Timetable — weekly aide + yard duty planner
 
 A standalone React tool (same family and aesthetic as **Chunk & Check**) for planning a
