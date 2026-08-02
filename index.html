@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#000000" />
+  <meta name="description" content="PE Athletics Manager - House events tracking for P-6 students" />
+  <title>Athletics Manager</title>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+        'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+        sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      background-color: #f5f5f5;
+    }
+    #root {
+      min-height: 100vh;
+      background-color: #ffffff;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const getStorage = () => {
+      if (typeof window !== 'undefined' && window.storage) {
+        return window.storage;
+      }
+      return localStorage;
+    };
+
+    const Athletics = () => {
+      const storage = getStorage();
+
+      // Default houses
+      const DEFAULT_HOUSES = [
+        { id: 1, name: 'Freeman', colour: '#FF6B6B' },
+        { id: 2, name: 'Goldstein', colour: '#4ECDC4' },
+        { id: 3, name: 'Flinders', colour: '#FFE66D' },
+        { id: 4, name: 'Mabo', colour: '#95E1D3' }
+      ];
+
+      // State
+      const [currentTab, setCurrentTab] = React.useState('events');
+      const [userRole, setUserRole] = React.useState(null);
+      const [schoolName, setSchoolName] = React.useState('');
+      const [importPreview, setImportPreview] = React.useState(null);
+
+      // Data states
+      const [houses, setHouses] = React.useState(() => {
+        const stored = JSON.parse(storage.getItem('athleticsHouses'));
+        if (stored && stored.length > 0) return stored;
+        storage.setItem('athleticsHouses', JSON.stringify(DEFAULT_HOUSES));
+        return DEFAULT_HOUSES;
+      });
+      const [events, setEvents] = React.useState(() => JSON.parse(storage.getItem('athleticsEvents')) || []);
+      const [students, setStudents] = React.useState(() => JSON.parse(storage.getItem('athleticsStudents')) || []);
+      const [records, setRecords] = React.useState(() => JSON.parse(storage.getItem('athleticsRecords')) || []);
+      const [districtQualifiers, setDistrictQualifiers] = React.useState(() => JSON.parse(storage.getItem('athleticsDistrictQualifiers')) || []);
+
+      // Save to storage
+      React.useEffect(() => { storage.setItem('athleticsHouses', JSON.stringify(houses)); }, [houses]);
+      React.useEffect(() => { storage.setItem('athleticsEvents', JSON.stringify(events)); }, [events]);
+      React.useEffect(() => { storage.setItem('athleticsStudents', JSON.stringify(students)); }, [students]);
+      React.useEffect(() => { storage.setItem('athleticsRecords', JSON.stringify(records)); }, [records]);
+      React.useEffect(() => { storage.setItem('athleticsDistrictQualifiers', JSON.stringify(districtQualifiers)); }, [districtQualifiers]);
+
+      // Login screen
+      if (!userRole) {
+        return (
+          <div style={{ padding: '40px', maxWidth: '600px', margin: '0 auto', fontFamily: 'system-ui' }}>
+            <h1>🏃 Athletics Manager</h1>
+            <p style={{ marginTop: '10px', marginBottom: '20px', color: '#666' }}>House Events Tracking for P-6</p>
+            <p style={{ marginBottom: '20px' }}>Select your role:</p>
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+              <button onClick={() => { setUserRole('admin'); setSchoolName('Your School'); }} style={{ padding: '12px 24px', fontSize: '16px', cursor: 'pointer', backgroundColor: '#2196F3', color: 'white', border: 'none', borderRadius: '4px' }}>
+                Admin
+              </button>
+              <button onClick={() => setUserRole('teacher')} style={{ padding: '12px 24px', fontSize: '16px', cursor: 'pointer', backgroundColor: '#4CAF50', color: 'white', border: 'none', borderRadius: '4px' }}>
+                Teacher
+              </button>
+              <button onClick={() => setUserRole('student')} style={{ padding: '12px 24px', fontSize: '16px', cursor: 'pointer', backgroundColor: '#FF9800', color: 'white', border: 'none', borderRadius: '4px' }}>
+                Student
+              </button>
+            </div>
+          </div>
+        );
+      }
+
+      // ADMIN TABS
+      const AdminEventsTab = () => {
+        const [newEvent, setNewEvent] = React.useState({ name: '', type: '', distance: '', record: '', recordHolder: '', unit: 'm' });
+
+        const addEvent = () => {
+          if (newEvent.name && newEvent.type) {
+            setEvents([...events, { id: Date.now(), ...newEvent }]);
+            setNewEvent({ name: '', type: '', distance: '', record: '', recordHolder: '', unit: 'm' });
+          }
+        };
+
+        return (
+          <div>
+            <h2>Athletics Events</h2>
+            <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f5f5f5', borderRadius: '8px' }}>
+              <h3>Add Event</h3>
+              <input
+                type="text"
+                placeholder="Event name (e.g., 100m Sprint)"
+                value={newEvent.name}
+                onChange={(e) => setNewEvent({ ...newEvent, name: e.target.value })}
+                style={{ display: 'block', marginBottom: '8px', padding: '8px', width: '100%', boxSizing: 'border-box' }}
+              />
+              <select
+                value={newEvent.type}
+                onChange={(e) => setNewEvent({ ...newEvent, type: e.target.value })}
+                style={{ display: 'block', marginBottom: '8px', padding: '8px', width: '100%', boxSizing: 'border-box' }}
+              >
+                <option value="">Select type</option>
+                <option value="sprint">Sprint</option>
+                <option value="distance">Distance</option>
+                <option value="field">Field Event</option>
+                <option value="relay">Relay</option>
+              </select>
+              <input
+                type="text"
+                placeholder="Current record"
+                value={newEvent.record}
+                onChange={(e) => setNewEvent({ ...newEvent, record: e.target.value })}
+                style={{ display: 'block', marginBottom: '8px', padding: '8px', width: '100%', boxSizing: 'border-box' }}
+              />
+              <input
+                type="text"
+                placeholder="Record holder name"
+                value={newEvent.recordHolder}
+                onChange={(e) => setNewEvent({ ...newEvent, recordHolder: e.target.value })}
+                style={{ display: 'block', marginBottom: '8px', padding: '8px', width: '100%', boxSizing: 'border-box' }}
+              />
+              <select
+                value={newEvent.unit}
+                onChange={(e) => setNewEvent({ ...newEvent, unit: e.target.value })}
+                style={{ display: 'inline-block', marginRight: '8px', padding: '8px' }}
+              >
+                <option value="sec">Seconds</option>
+                <option value="m">Metres</option>
+                <option value="cm">Centimetres</option>
+              </select>
+              <button onClick={addEvent} style={{ padding: '8px 16px', cursor: 'pointer', backgroundColor: '#2196F3', color: 'white', border: 'none', borderRadius: '4px' }}>
+                Add Event
+              </button>
+            </div>
+            <div>
+              {events.length === 0 ? (
+                <p>No events yet.</p>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ backgroundColor: '#e0e0e0' }}>
+                      <th style={{ border: '1px solid #ccc', padding: '8px' }}>Event</th>
+                      <th style={{ border: '1px solid #ccc', padding: '8px' }}>Type</th>
+                      <th style={{ border: '1px solid #ccc', padding: '8px' }}>Record</th>
+                      <th style={{ border: '1px solid #ccc', padding: '8px' }}>Record Holder</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {events.map((e) => (
+                      <tr key={e.id}>
+                        <td style={{ border: '1px solid #ccc', padding: '8px' }}>{e.name}</td>
+                        <td style={{ border: '1px solid #ccc', padding: '8px' }}>{e.type}</td>
+                        <td style={{ border: '1px solid #ccc', padding: '8px' }}>{e.record} {e.unit}</td>
+                        <td style={{ border: '1px solid #ccc', padding: '8px' }}>{e.recordHolder}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        );
+      };
+
+      const AdminHousesTab = () => {
+        return (
+          <div>
+            <h2>Houses</h2>
+            <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
+              {houses.map((h) => (
+                <div key={h.id} style={{ padding: '15px', backgroundColor: h.colour, color: 'white', borderRadius: '8px', minWidth: '150px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
+                  <strong>{h.name}</strong>
+                  <div style={{ fontSize: '0.9em', marginTop: '8px' }}>
+                    {students.filter(s => s.house === h.id).length} students
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      };
+
+      const AdminStudentsTab = () => {
+        return (
+          <div>
+            <h2>Students ({students.length})</h2>
+            {students.length === 0 ? (
+              <p>No students. Use the Import tab to add students.</p>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ backgroundColor: '#e0e0e0' }}>
+                    <th style={{ border: '1px solid #ccc', padding: '8px' }}>Name</th>
+                    <th style={{ border: '1px solid #ccc', padding: '8px' }}>Year</th>
+                    <th style={{ border: '1px solid #ccc', padding: '8px' }}>House</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {students.slice(0, 50).map((s) => (
+                    <tr key={s.id}>
+                      <td style={{ border: '1px solid #ccc', padding: '8px' }}>{s.name}</td>
+                      <td style={{ border: '1px solid #ccc', padding: '8px' }}>{s.yearLevel}</td>
+                      <td style={{ border: '1px solid #ccc', padding: '8px' }}>{s.house}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {students.length > 50 && <p style={{ marginTop: '10px', color: '#666' }}>Showing 50 of {students.length} students</p>}
+          </div>
+        );
+      };
+
+      const AdminImportTab = () => {
+        const [pastedData, setPastedData] = React.useState('');
+
+        const parseStudentData = (jsonString) => {
+          try {
+            const data = JSON.parse(jsonString);
+            if (!Array.isArray(data)) throw new Error('Data must be an array');
+            return data.filter(s => s.name && (s.house || s.houseId));
+          } catch (e) {
+            alert('Invalid JSON format: ' + e.message);
+            return [];
+          }
+        };
+
+        const handleFileUpload = (e) => {
+          const file = e.target.files[0];
+          if (!file) return;
+
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            try {
+              const data = JSON.parse(event.target.result);
+              if (Array.isArray(data) && data.length > 0) {
+                setImportPreview(data);
+              } else {
+                alert('File must contain an array of students');
+              }
+            } catch (err) {
+              alert('Invalid file format: ' + err.message);
+            }
+          };
+          reader.readAsText(file);
+        };
+
+        const handlePasteData = () => {
+          if (!pastedData.trim()) {
+            alert('Please paste student data');
+            return;
+          }
+          const parsed = parseStudentData(pastedData);
+          if (parsed.length > 0) {
+            setImportPreview(parsed);
+            setPastedData('');
+          }
+        };
+
+        const confirmImport = () => {
+          if (!importPreview || importPreview.length === 0) return;
+
+          const newStudents = importPreview.map((s, idx) => ({
+            id: Date.now() + idx,
+            name: s.name,
+            yearLevel: s.yearLevel || s.year || '',
+            house: s.house || s.houseId || '',
+            beepTestResult: s.beepTestResult || ''
+          })).filter(s => s.name && s.house);
+
+          setStudents([...students, ...newStudents]);
+          setImportPreview(null);
+          alert(`✓ Imported ${newStudents.length} students`);
+        };
+
+        if (importPreview && importPreview.length > 0) {
+          return (
+            <div>
+              <h2>Import Preview</h2>
+              <div style={{ padding: '15px', backgroundColor: '#e8f5e9', borderRadius: '8px', marginBottom: '15px' }}>
+                <p><strong>Ready to import {importPreview.length} students:</strong></p>
+                <div style={{ maxHeight: '300px', overflowY: 'auto', marginBottom: '15px' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9em' }}>
+                    <thead>
+                      <tr style={{ backgroundColor: '#c8e6c9' }}>
+                        <th style={{ border: '1px solid #ccc', padding: '8px' }}>Name</th>
+                        <th style={{ border: '1px solid #ccc', padding: '8px' }}>Year</th>
+                        <th style={{ border: '1px solid #ccc', padding: '8px' }}>House</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {importPreview.slice(0, 20).map((s, idx) => (
+                        <tr key={idx}>
+                          <td style={{ border: '1px solid #ccc', padding: '8px' }}>{s.name}</td>
+                          <td style={{ border: '1px solid #ccc', padding: '8px' }}>{s.year || s.yearLevel || '-'}</td>
+                          <td style={{ border: '1px solid #ccc', padding: '8px' }}>{s.house}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {importPreview.length > 20 && <p style={{ fontSize: '0.9em', marginTop: '8px' }}>... and {importPreview.length - 20} more</p>}
+                </div>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button onClick={confirmImport} style={{ padding: '10px 20px', backgroundColor: '#4CAF50', color: 'white', border: 'none', cursor: 'pointer', borderRadius: '4px' }}>
+                    ✓ Confirm Import
+                  </button>
+                  <button onClick={() => setImportPreview(null)} style={{ padding: '10px 20px', backgroundColor: '#f44336', color: 'white', border: 'none', cursor: 'pointer', borderRadius: '4px' }}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        return (
+          <div>
+            <h2>Import Students</h2>
+
+            <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f5f5f5', borderRadius: '8px' }}>
+              <h3>Upload JSON File</h3>
+              <input
+                type="file"
+                accept=".json"
+                onChange={handleFileUpload}
+                style={{ display: 'block', marginBottom: '8px' }}
+              />
+              <p style={{ fontSize: '0.9em', color: '#666' }}>Format: JSON array of {'{name, year, house, beepTestResult}'}</p>
+            </div>
+
+            <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f5f5f5', borderRadius: '8px' }}>
+              <h3>Paste JSON Data</h3>
+              <textarea
+                placeholder='[{"name": "John Doe", "year": "5", "house": "Freeman"}]'
+                value={pastedData}
+                onChange={(e) => setPastedData(e.target.value)}
+                style={{ width: '100%', height: '150px', padding: '8px', boxSizing: 'border-box', fontFamily: 'monospace', fontSize: '12px' }}
+              />
+              <button onClick={handlePasteData} style={{ padding: '8px 16px', cursor: 'pointer', marginTop: '8px', backgroundColor: '#2196F3', color: 'white', border: 'none', borderRadius: '4px' }}>
+                Import from Paste
+              </button>
+            </div>
+
+            <div style={{ padding: '15px', backgroundColor: '#e3f2fd', borderRadius: '8px' }}>
+              <h3>Current: {students.length} students</h3>
+            </div>
+          </div>
+        );
+      };
+
+      return (
+        <div style={{ padding: '20px', maxWidth: '1000px', margin: '0 auto', fontFamily: 'system-ui' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+            <h1>🏃 Athletics Manager</h1>
+            <button
+              onClick={() => {
+                setUserRole(null);
+                setCurrentTab('events');
+              }}
+              style={{ padding: '8px 16px', backgroundColor: '#f44336', color: 'white', border: 'none', cursor: 'pointer', borderRadius: '4px' }}
+            >
+              Logout
+            </button>
+          </div>
+
+          {userRole === 'admin' && (
+            <>
+              <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', borderBottom: '1px solid #ccc', flexWrap: 'wrap' }}>
+                {['events', 'houses', 'students', 'import'].map(tab => (
+                  <button
+                    key={tab}
+                    onClick={() => setCurrentTab(tab)}
+                    style={{
+                      padding: '8px 16px',
+                      backgroundColor: currentTab === tab ? '#2196F3' : '#e0e0e0',
+                      color: currentTab === tab ? 'white' : 'black',
+                      border: 'none',
+                      cursor: 'pointer',
+                      borderRadius: '4px 4px 0 0'
+                    }}
+                  >
+                    {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                  </button>
+                ))}
+              </div>
+              {currentTab === 'events' && <AdminEventsTab />}
+              {currentTab === 'houses' && <AdminHousesTab />}
+              {currentTab === 'students' && <AdminStudentsTab />}
+              {currentTab === 'import' && <AdminImportTab />}
+            </>
+          )}
+
+          {userRole === 'teacher' && <p style={{ padding: '20px', backgroundColor: '#fff3cd', borderRadius: '4px' }}>Teacher features coming soon.</p>}
+          {userRole === 'student' && <p style={{ padding: '20px', backgroundColor: '#d1ecf1', borderRadius: '4px' }}>Student features coming soon.</p>}
+        </div>
+      );
+    };
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<Athletics />);
+  </script>
+</body>
+</html>
