@@ -10,13 +10,27 @@ const getStorage = () => {
 const Athletics = () => {
   const storage = getStorage();
 
+  // Default houses
+  const DEFAULT_HOUSES = [
+    { id: 1, name: 'Freeman', colour: '#FF6B6B' },
+    { id: 2, name: 'Goldstein', colour: '#4ECDC4' },
+    { id: 3, name: 'Flinders', colour: '#FFE66D' },
+    { id: 4, name: 'Mabo', colour: '#95E1D3' }
+  ];
+
   // State
   const [currentTab, setCurrentTab] = useState('events');
   const [userRole, setUserRole] = useState(null);
   const [schoolName, setSchoolName] = useState('');
+  const [importPreview, setImportPreview] = useState(null);
 
   // Data states
-  const [houses, setHouses] = useState(() => JSON.parse(storage.getItem('athleticsHouses')) || []);
+  const [houses, setHouses] = useState(() => {
+    const stored = JSON.parse(storage.getItem('athleticsHouses'));
+    if (stored && stored.length > 0) return stored;
+    storage.setItem('athleticsHouses', JSON.stringify(DEFAULT_HOUSES));
+    return DEFAULT_HOUSES;
+  });
   const [events, setEvents] = useState(() => JSON.parse(storage.getItem('athleticsEvents')) || []);
   const [students, setStudents] = useState(() => JSON.parse(storage.getItem('athleticsStudents')) || []);
   const [records, setRecords] = useState(() => JSON.parse(storage.getItem('athleticsRecords')) || []);
@@ -423,6 +437,146 @@ const Athletics = () => {
     );
   };
 
+  const AdminImportTab = () => {
+    const [pastedData, setPastedData] = useState('');
+
+    const parseStudentData = (jsonString) => {
+      try {
+        const data = JSON.parse(jsonString);
+        if (!Array.isArray(data)) throw new Error('Data must be an array');
+        return data.filter(s => s.name && s.house);
+      } catch (e) {
+        alert('Invalid JSON format: ' + e.message);
+        return [];
+      }
+    };
+
+    const handleFileUpload = (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const data = JSON.parse(event.target.result);
+          if (Array.isArray(data) && data.length > 0) {
+            setImportPreview(data);
+          } else {
+            alert('File must contain an array of students');
+          }
+        } catch (err) {
+          alert('Invalid file format: ' + err.message);
+        }
+      };
+      reader.readAsText(file);
+    };
+
+    const handlePasteData = () => {
+      if (!pastedData.trim()) {
+        alert('Please paste student data');
+        return;
+      }
+      const parsed = parseStudentData(pastedData);
+      if (parsed.length > 0) {
+        setImportPreview(parsed);
+        setPastedData('');
+      }
+    };
+
+    const confirmImport = () => {
+      if (!importPreview || importPreview.length === 0) return;
+
+      const newStudents = importPreview.map((s, idx) => ({
+        id: Date.now() + idx,
+        name: s.name,
+        yearLevel: s.yearLevel || s.year || '',
+        house: s.house || s.houseId || '',
+        beepTestResult: s.beepTestResult || ''
+      })).filter(s => s.name && s.house);
+
+      setStudents([...students, ...newStudents]);
+      setImportPreview(null);
+      alert(`✓ Imported ${newStudents.length} students`);
+    };
+
+    if (importPreview && importPreview.length > 0) {
+      return (
+        <div>
+          <h2>Import Preview</h2>
+          <div style={{ padding: '15px', backgroundColor: '#e8f5e9', borderRadius: '8px', marginBottom: '15px' }}>
+            <p><strong>Ready to import {importPreview.length} students:</strong></p>
+            <div style={{ maxHeight: '300px', overflowY: 'auto', marginBottom: '15px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9em' }}>
+                <thead>
+                  <tr style={{ backgroundColor: '#c8e6c9' }}>
+                    <th style={{ border: '1px solid #ccc', padding: '8px' }}>Name</th>
+                    <th style={{ border: '1px solid #ccc', padding: '8px' }}>Year</th>
+                    <th style={{ border: '1px solid #ccc', padding: '8px' }}>House</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {importPreview.slice(0, 20).map((s, idx) => (
+                    <tr key={idx}>
+                      <td style={{ border: '1px solid #ccc', padding: '8px' }}>{s.name}</td>
+                      <td style={{ border: '1px solid #ccc', padding: '8px' }}>{s.year || s.yearLevel || '-'}</td>
+                      <td style={{ border: '1px solid #ccc', padding: '8px' }}>{s.house}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {importPreview.length > 20 && <p style={{ fontSize: '0.9em', marginTop: '8px' }}>... and {importPreview.length - 20} more</p>}
+            </div>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button onClick={confirmImport} style={{ padding: '10px 20px', backgroundColor: '#4CAF50', color: 'white', border: 'none', cursor: 'pointer', borderRadius: '4px' }}>
+                ✓ Confirm Import
+              </button>
+              <button onClick={() => setImportPreview(null)} style={{ padding: '10px 20px', backgroundColor: '#f44336', color: 'white', border: 'none', cursor: 'pointer', borderRadius: '4px' }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div>
+        <h2>Import Students</h2>
+
+        <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f5f5f5', borderRadius: '8px' }}>
+          <h3>Upload JSON File</h3>
+          <input
+            type="file"
+            accept=".json"
+            onChange={handleFileUpload}
+            style={{ display: 'block', marginBottom: '8px' }}
+          />
+          <p style={{ fontSize: '0.9em', color: '#666' }}>File format: JSON array of students with name, year, house, beepTestResult</p>
+        </div>
+
+        <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f5f5f5', borderRadius: '8px' }}>
+          <h3>Paste JSON Data</h3>
+          <textarea
+            placeholder='Paste JSON data:\n[{"name": "John Doe", "year": "5", "house": "Freeman", "beepTestResult": "Level 6"}]'
+            value={pastedData}
+            onChange={(e) => setPastedData(e.target.value)}
+            style={{ width: '100%', height: '150px', padding: '8px', boxSizing: 'border-box', fontFamily: 'monospace', fontSize: '12px' }}
+          />
+          <button onClick={handlePasteData} style={{ padding: '8px 16px', cursor: 'pointer', marginTop: '8px' }}>
+            Import from Paste
+          </button>
+        </div>
+
+        <div style={{ padding: '15px', backgroundColor: '#e3f2fd', borderRadius: '8px' }}>
+          <h3>Current Student Count: {students.length}</h3>
+          {students.length === 0 && (
+            <p>Import student data to get started. Each student needs: name, year level, and house.</p>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   // STUDENT TABS
   const StudentProfileTab = () => {
     const currentStudent = students.find(s => s.id == userRole);
@@ -581,7 +735,7 @@ const Athletics = () => {
       return (
         <>
           <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', borderBottom: '1px solid #ccc' }}>
-            {['events', 'houses', 'students', 'records', 'district'].map(tab => (
+            {['events', 'houses', 'students', 'import', 'records', 'district'].map(tab => (
               <button
                 key={tab}
                 onClick={() => setCurrentTab(tab)}
@@ -601,6 +755,7 @@ const Athletics = () => {
           {currentTab === 'events' && <AdminEventsTab />}
           {currentTab === 'houses' && <AdminHousesTab />}
           {currentTab === 'students' && <AdminStudentsTab />}
+          {currentTab === 'import' && <AdminImportTab />}
           {currentTab === 'records' && <AdminRecordsTab />}
           {currentTab === 'district' && <AdminDistrictTab />}
         </>
