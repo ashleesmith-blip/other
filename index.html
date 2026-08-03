@@ -52,7 +52,31 @@
   .medal1 { background: #fef9c3; }
   .medal2 { background: #f1f5f9; }
   .medal3 { background: #ffedd5; }
-  @media print { .tabs, .topbar button, .noprint { display: none !important; } body { background: #fff; } }
+  .sheet { background: #fff; border: 1px solid #e0e4e8; border-radius: 10px; padding: 18px; margin-bottom: 16px; }
+.sheet-head { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; align-items: flex-start; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 2px solid #1a2027; }
+.sheet-title { font-size: 17px; font-weight: 700; }
+.sheet td { height: 30px; }
+.sheet td:nth-child(4), .sheet td:nth-child(5) { border-left: 1px solid #e8ecef; }
+
+@media print {
+  .tabs, .topbar, .noprint { display: none !important; }
+  body { background: #fff; }
+  .wrap { max-width: none; padding: 0; }
+  /* A division can run to 60 students, so a sheet may be taller than a page:
+     let it flow, but start each new sheet on a fresh page and repeat the
+     column headings and the event title on every page it spills onto. */
+  .sheet {
+    border: none; border-radius: 0; padding: 0; margin: 0;
+    break-after: page; page-break-after: always;
+  }
+  .sheet:last-child { break-after: auto; page-break-after: auto; }
+  .sheet thead { display: table-header-group; }
+  .sheet tr { break-inside: avoid; page-break-inside: avoid; }
+  .sheet-head { break-after: avoid; page-break-after: avoid; }
+  .sheet td { height: 26px; }
+  th { background: #f0f2f4 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  @page { margin: 14mm; }
+}
 
 </style>
 </head>
@@ -912,6 +936,8 @@ function StudentsTab({
   const [filterYear, setFilterYear] = useState('');
   const [filterHouse, setFilterHouse] = useState('');
   const [search, setSearch] = useState('');
+  const [bulkTarget, setBulkTarget] = useState('');
+  const [bulkYear, setBulkYear] = useState('6');
   const add = () => {
     if (!draft.name.trim() || !draft.house) return alert('A student needs at least a name and a house.');
     setStudents(students.concat([{
@@ -926,7 +952,34 @@ function StudentsTab({
       beepTest: ''
     });
   };
-  const shown = students.filter(s => (!filterYear || s.yearLevel === filterYear) && (!filterHouse || s.house === filterHouse) && (!search || s.name.toLowerCase().includes(search.toLowerCase())));
+  const patch = (id, changes) => setStudents(students.map(s => s.id === id ? {
+    ...s,
+    ...changes
+  } : s));
+  const shown = students.filter(s => (filterYear === '' || (filterYear === '__none' ? !s.yearLevel : s.yearLevel === filterYear)) && (!filterHouse || s.house === filterHouse) && (!search || s.name.toLowerCase().includes(search.toLowerCase())));
+  const homegroups = Array.from(new Set(students.map(s => s.homegroup).filter(Boolean))).sort();
+  const applyBulk = () => {
+    if (!bulkTarget) return alert('Choose which students to change.');
+    let match;
+    if (bulkTarget === '__shown') {
+      const ids = new Set(shown.map(s => s.id));
+      match = s => ids.has(s.id);
+    } else if (bulkTarget.startsWith('hg:')) {
+      const hg = bulkTarget.slice(3);
+      match = s => s.homegroup === hg;
+    } else {
+      const yr = bulkTarget.slice(3);
+      match = s => (s.yearLevel || '') === yr;
+    }
+    const count = students.filter(match).length;
+    if (!count) return alert('That matches nobody.');
+    if (!confirm('Move ' + count + ' student' + (count === 1 ? '' : 's') + ' to Year ' + bulkYear + '?')) return;
+    setStudents(students.map(s => match(s) ? {
+      ...s,
+      yearLevel: bulkYear
+    } : s));
+    setBulkTarget('');
+  };
   const houseName = id => (houses.find(h => h.id === id) || {}).name || '—';
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h2", null, "Students (", students.length, ")"), /*#__PURE__*/React.createElement("div", {
     className: "card"
@@ -1020,7 +1073,9 @@ function StudentsTab({
   }, "All years"), YEARS.map(y => /*#__PURE__*/React.createElement("option", {
     key: y,
     value: y
-  }, y)))), /*#__PURE__*/React.createElement("label", {
+  }, y)), /*#__PURE__*/React.createElement("option", {
+    value: "__none"
+  }, "No year level set"))), /*#__PURE__*/React.createElement("label", {
     className: "fld"
   }, "House", /*#__PURE__*/React.createElement("select", {
     value: filterHouse,
@@ -1030,23 +1085,76 @@ function StudentsTab({
   }, "All houses"), houses.map(h => /*#__PURE__*/React.createElement("option", {
     key: h.id,
     value: h.id
-  }, h.name))))), /*#__PURE__*/React.createElement("div", {
+  }, h.name))))), /*#__PURE__*/React.createElement("p", {
+    className: "muted",
+    style: {
+      margin: '0 0 10px'
+    }
+  }, "Year, gender and house can all be changed straight in the table \u2014 edits save as you make them."), /*#__PURE__*/React.createElement("div", {
     className: "scroll"
-  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Name"), /*#__PURE__*/React.createElement("th", null, "Year"), /*#__PURE__*/React.createElement("th", null, "Gender"), /*#__PURE__*/React.createElement("th", null, "House"), /*#__PURE__*/React.createElement("th", null, "Homegroup"), /*#__PURE__*/React.createElement("th", null, "Beep test"), /*#__PURE__*/React.createElement("th", null))), /*#__PURE__*/React.createElement("tbody", null, shown.map(s => /*#__PURE__*/React.createElement("tr", {
+  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Name"), /*#__PURE__*/React.createElement("th", {
+    style: {
+      width: 110
+    }
+  }, "Year"), /*#__PURE__*/React.createElement("th", {
+    style: {
+      width: 120
+    }
+  }, "Gender"), /*#__PURE__*/React.createElement("th", {
+    style: {
+      width: 150
+    }
+  }, "House"), /*#__PURE__*/React.createElement("th", null, "Homegroup"), /*#__PURE__*/React.createElement("th", {
+    style: {
+      width: 110
+    }
+  }, "Beep test"), /*#__PURE__*/React.createElement("th", null))), /*#__PURE__*/React.createElement("tbody", null, shown.map(s => /*#__PURE__*/React.createElement("tr", {
     key: s.id
-  }, /*#__PURE__*/React.createElement("td", null, s.name), /*#__PURE__*/React.createElement("td", null, s.yearLevel), /*#__PURE__*/React.createElement("td", null, s.gender), /*#__PURE__*/React.createElement("td", null, houseName(s.house)), /*#__PURE__*/React.createElement("td", {
+  }, /*#__PURE__*/React.createElement("td", null, s.name), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("select", {
+    value: s.yearLevel || '',
+    style: {
+      marginTop: 0
+    },
+    onChange: e => patch(s.id, {
+      yearLevel: e.target.value
+    })
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "\u2014"), YEARS.map(y => /*#__PURE__*/React.createElement("option", {
+    key: y,
+    value: y
+  }, y)))), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("select", {
+    value: s.gender || 'Mixed',
+    style: {
+      marginTop: 0
+    },
+    onChange: e => patch(s.id, {
+      gender: e.target.value
+    })
+  }, /*#__PURE__*/React.createElement("option", null, "Female"), /*#__PURE__*/React.createElement("option", null, "Male"), /*#__PURE__*/React.createElement("option", null, "Mixed"))), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("select", {
+    value: s.house || '',
+    style: {
+      marginTop: 0
+    },
+    onChange: e => patch(s.id, {
+      house: e.target.value
+    })
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "\u2014"), houses.map(h => /*#__PURE__*/React.createElement("option", {
+    key: h.id,
+    value: h.id
+  }, h.name)))), /*#__PURE__*/React.createElement("td", {
     className: "muted"
   }, s.homegroup), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("input", {
     type: "text",
     value: s.beepTest || '',
     style: {
-      width: 90,
       marginTop: 0
     },
-    onChange: e => setStudents(students.map(x => x.id === s.id ? {
-      ...x,
+    onChange: e => patch(s.id, {
       beepTest: e.target.value
-    } : x))
+    })
   })), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("button", {
     className: "btn-ghost btn-sm",
     onClick: () => {
@@ -1057,7 +1165,44 @@ function StudentsTab({
     style: {
       marginTop: 12
     }
-  }, "No students match. Use the Import tab to load a class list.")));
+  }, "No students match. Use the Import tab to load a class list.")), /*#__PURE__*/React.createElement("div", {
+    className: "card"
+  }, /*#__PURE__*/React.createElement("h3", null, "Change a whole group at once"), /*#__PURE__*/React.createElement("p", {
+    className: "muted",
+    style: {
+      marginTop: 0
+    }
+  }, "For year rollover, or when a homegroup code didn't give the right year level on import."), /*#__PURE__*/React.createElement("div", {
+    className: "row"
+  }, /*#__PURE__*/React.createElement("label", {
+    className: "fld"
+  }, "These students", /*#__PURE__*/React.createElement("select", {
+    value: bulkTarget,
+    onChange: e => setBulkTarget(e.target.value)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "Select\u2026"), /*#__PURE__*/React.createElement("option", {
+    value: "__shown"
+  }, "the ", shown.length, " shown by the filters above"), homegroups.map(hg => /*#__PURE__*/React.createElement("option", {
+    key: hg,
+    value: 'hg:' + hg
+  }, "homegroup ", hg, " (", students.filter(s => s.homegroup === hg).length, ")")), YEARS.map(y => /*#__PURE__*/React.createElement("option", {
+    key: y,
+    value: 'yr:' + y
+  }, "everyone in Year ", y, " (", students.filter(s => s.yearLevel === y).length, ")")), /*#__PURE__*/React.createElement("option", {
+    value: "yr:"
+  }, "everyone with no year level (", students.filter(s => !s.yearLevel).length, ")"))), /*#__PURE__*/React.createElement("label", {
+    className: "fld"
+  }, "become Year", /*#__PURE__*/React.createElement("select", {
+    value: bulkYear,
+    onChange: e => setBulkYear(e.target.value)
+  }, YEARS.map(y => /*#__PURE__*/React.createElement("option", {
+    key: y,
+    value: y
+  }, y)))), /*#__PURE__*/React.createElement("button", {
+    className: "btn",
+    onClick: applyBulk
+  }, "Apply"))));
 }
 function ImportTab({
   students,
@@ -1503,6 +1648,217 @@ function DistrictTab({
     className: "muted"
   }, p.reason)))))));
 }
+function download(filename, text, mime) {
+  const blob = new Blob([text], {
+    type: mime || 'text/plain;charset=utf-8'
+  });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+const csvCell = v => {
+  const s = String(v === null || v === undefined ? '' : v);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+};
+const toCsv = rows => rows.map(r => r.map(csvCell).join(',')).join('\r\n') + '\r\n';
+function SheetsTab({
+  events,
+  students,
+  results,
+  houses
+}) {
+  const [eventId, setEventId] = useState('all');
+  const [year, setYear] = useState('all');
+  const [gender, setGender] = useState('all');
+  const [blankRows, setBlankRows] = useState(3);
+  const [withResults, setWithResults] = useState(false);
+  const houseName = id => (houses.find(h => h.id === id) || {}).name || '';
+  const studentsById = useMemo(() => {
+    const m = {};
+    students.forEach(s => {
+      m[s.id] = s;
+    });
+    return m;
+  }, [students]);
+
+  // One sheet per event x year x gender that has students in it.
+  const sheets = useMemo(() => {
+    const out = [];
+    const years = year === 'all' ? YEARS : [year];
+    const genders = gender === 'all' ? ['Female', 'Male', 'Mixed'] : [gender];
+    events.filter(ev => eventId === 'all' || ev.id === eventId).forEach(ev => {
+      years.forEach(y => {
+        if (eventId === 'all' && !ev.years.includes(y)) return; // skip year levels this event isn't run at
+        genders.forEach(g => {
+          const roll = students.filter(s => s.yearLevel === y && (s.gender || 'Mixed') === g);
+          if (!roll.length) return;
+          const ranked = rankFor(results, ev.id, y + ' ' + g, ev.scoring, studentsById);
+          const order = withResults ? ranked.map(r => studentsById[r.studentId]).concat(roll.filter(s => !ranked.some(r => r.studentId === s.id))) : roll.slice().sort((a, b) => (houseName(a.house) + a.name).localeCompare(houseName(b.house) + b.name));
+          out.push({
+            event: ev,
+            year: y,
+            gender: g,
+            roll: order,
+            ranked
+          });
+        });
+      });
+    });
+    return out;
+  }, [events, students, results, eventId, year, gender, withResults, houses]);
+  const exportResultsCsv = () => {
+    const rows = [['Event', 'Year', 'Gender', 'Place', 'Student', 'House', 'Result', 'Unit']];
+    events.forEach(ev => {
+      const divisions = new Set();
+      results.filter(r => r.eventId === ev.id).forEach(r => {
+        const st = studentsById[r.studentId];
+        if (st) divisions.add(divisionOf(st));
+      });
+      Array.from(divisions).sort().forEach(division => {
+        rankFor(results, ev.id, division, ev.scoring, studentsById).forEach(r => {
+          const st = studentsById[r.studentId];
+          rows.push([ev.name, st.yearLevel, st.gender, r.place, st.name, houseName(st.house), r.result, ev.unit]);
+        });
+      });
+    });
+    if (rows.length === 1) return alert('No results recorded yet.');
+    download('athletics-results.csv', toCsv(rows), 'text/csv;charset=utf-8');
+  };
+  const exportSheetsCsv = () => {
+    const rows = [['Event', 'Year', 'Gender', 'Student', 'House', 'Result']];
+    sheets.forEach(sh => sh.roll.forEach(s => {
+      const hit = sh.ranked.find(r => r.studentId === s.id);
+      rows.push([sh.event.name, sh.year, sh.gender, s.name, houseName(s.house), hit ? hit.result : '']);
+    }));
+    if (rows.length === 1) return alert('Nothing to export — check the filters.');
+    download('athletics-event-sheets.csv', toCsv(rows), 'text/csv;charset=utf-8');
+  };
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h2", {
+    className: "noprint"
+  }, "Event sheets"), /*#__PURE__*/React.createElement("div", {
+    className: "card noprint"
+  }, /*#__PURE__*/React.createElement("p", {
+    className: "muted",
+    style: {
+      marginTop: 0
+    }
+  }, "Recording sheets for carnival day \u2014 one page per event and division, with every student in that division already listed. ", /*#__PURE__*/React.createElement("strong", null, "Print"), " opens your browser's print dialog; choose", /*#__PURE__*/React.createElement("em", null, " Save as PDF"), " there if you want a file rather than paper."), /*#__PURE__*/React.createElement("div", {
+    className: "row"
+  }, /*#__PURE__*/React.createElement("label", {
+    className: "fld"
+  }, "Event", /*#__PURE__*/React.createElement("select", {
+    value: eventId,
+    onChange: e => setEventId(e.target.value)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "all"
+  }, "All events"), events.map(ev => /*#__PURE__*/React.createElement("option", {
+    key: ev.id,
+    value: ev.id
+  }, ev.name)))), /*#__PURE__*/React.createElement("label", {
+    className: "fld"
+  }, "Year", /*#__PURE__*/React.createElement("select", {
+    value: year,
+    onChange: e => setYear(e.target.value)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "all"
+  }, "All years"), YEARS.map(y => /*#__PURE__*/React.createElement("option", {
+    key: y,
+    value: y
+  }, y)))), /*#__PURE__*/React.createElement("label", {
+    className: "fld"
+  }, "Gender", /*#__PURE__*/React.createElement("select", {
+    value: gender,
+    onChange: e => setGender(e.target.value)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "all"
+  }, "All"), /*#__PURE__*/React.createElement("option", null, "Female"), /*#__PURE__*/React.createElement("option", null, "Male"), /*#__PURE__*/React.createElement("option", null, "Mixed"))), /*#__PURE__*/React.createElement("label", {
+    className: "fld"
+  }, "Spare rows", /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    min: "0",
+    max: "10",
+    value: blankRows,
+    onChange: e => setBlankRows(Math.max(0, Math.min(10, parseInt(e.target.value) || 0)))
+  }))), /*#__PURE__*/React.createElement("label", {
+    style: {
+      fontSize: 14,
+      display: 'block',
+      marginBottom: 12
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: withResults,
+    onChange: e => setWithResults(e.target.checked)
+  }), ' ', "Fill in the results already recorded, in placing order (leave off for blank sheets to write on)"), /*#__PURE__*/React.createElement("div", {
+    className: "row"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "btn",
+    onClick: () => window.print()
+  }, "Print / save as PDF"), /*#__PURE__*/React.createElement("button", {
+    className: "btn-ghost",
+    onClick: exportSheetsCsv
+  }, "Download these sheets as CSV"), /*#__PURE__*/React.createElement("button", {
+    className: "btn-ghost",
+    onClick: exportResultsCsv
+  }, "Download all results as CSV")), /*#__PURE__*/React.createElement("p", {
+    className: "muted",
+    style: {
+      marginBottom: 0,
+      marginTop: 12
+    }
+  }, sheets.length, " sheet", sheets.length === 1 ? '' : 's', " ready.")), sheets.length === 0 && /*#__PURE__*/React.createElement("p", {
+    className: "muted noprint"
+  }, "Nothing matches those filters."), sheets.map((sh, i) => /*#__PURE__*/React.createElement("div", {
+    className: "sheet",
+    key: sh.event.id + sh.year + sh.gender + i
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "sheet-head"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "sheet-title"
+  }, sh.event.name, " \u2014 Year ", sh.year, " ", sh.gender), /*#__PURE__*/React.createElement("div", {
+    className: "muted"
+  }, sh.event.scoring === 'lower' ? 'Fastest wins' : 'Furthest / highest wins', " \xB7 record in ", sh.event.unit)), /*#__PURE__*/React.createElement("div", {
+    className: "muted",
+    style: {
+      textAlign: 'right'
+    }
+  }, "Marshal: ______________________", /*#__PURE__*/React.createElement("br", null), "Date: ______________")), /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    style: {
+      width: 34
+    }
+  }, "#"), /*#__PURE__*/React.createElement("th", null, "Student"), /*#__PURE__*/React.createElement("th", {
+    style: {
+      width: 110
+    }
+  }, "House"), /*#__PURE__*/React.createElement("th", {
+    style: {
+      width: 110
+    }
+  }, "Result"), /*#__PURE__*/React.createElement("th", {
+    style: {
+      width: 60
+    }
+  }, "Place"))), /*#__PURE__*/React.createElement("tbody", null, sh.roll.map((s, idx) => {
+    const hit = sh.ranked.find(r => r.studentId === s.id);
+    return /*#__PURE__*/React.createElement("tr", {
+      key: s.id
+    }, /*#__PURE__*/React.createElement("td", {
+      className: "muted"
+    }, idx + 1), /*#__PURE__*/React.createElement("td", null, s.name), /*#__PURE__*/React.createElement("td", {
+      className: "muted"
+    }, houseName(s.house)), /*#__PURE__*/React.createElement("td", null, withResults && hit ? hit.result : ''), /*#__PURE__*/React.createElement("td", null, withResults && hit ? hit.place : ''));
+  }), Array.from({
+    length: blankRows
+  }).map((_, k) => /*#__PURE__*/React.createElement("tr", {
+    key: 'blank' + k
+  }, /*#__PURE__*/React.createElement("td", {
+    className: "muted"
+  }, sh.roll.length + k + 1), /*#__PURE__*/React.createElement("td", null), /*#__PURE__*/React.createElement("td", null), /*#__PURE__*/React.createElement("td", null), /*#__PURE__*/React.createElement("td", null))))))));
+}
 
 /* ---------------------------------------------------------------- shell */
 
@@ -1535,7 +1891,7 @@ function App() {
   useEffect(() => {
     store.setItem('ath_settings', JSON.stringify(settings));
   }, [settings]);
-  const TABS = [['events', 'Events'], ['houses', 'Houses'], ['students', 'Students'], ['import', 'Import'], ['results', 'Results'], ['district', 'District']];
+  const TABS = [['events', 'Events'], ['houses', 'Houses'], ['students', 'Students'], ['import', 'Import'], ['results', 'Results'], ['sheets', 'Event sheets'], ['district', 'District']];
   return /*#__PURE__*/React.createElement("div", {
     className: "wrap"
   }, /*#__PURE__*/React.createElement("div", {
@@ -1579,6 +1935,11 @@ function App() {
     students: students,
     results: results,
     setResults: setResults,
+    houses: houses
+  }), tab === 'sheets' && /*#__PURE__*/React.createElement(SheetsTab, {
+    events: events,
+    students: students,
+    results: results,
     houses: houses
   }), tab === 'district' && /*#__PURE__*/React.createElement(DistrictTab, {
     events: events,

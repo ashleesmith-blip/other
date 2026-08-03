@@ -44,4 +44,28 @@
   .medal1 { background: #fef9c3; }
   .medal2 { background: #f1f5f9; }
   .medal3 { background: #ffedd5; }
-  @media print { .tabs, .topbar button, .noprint { display: none !important; } body { background: #fff; } }
+  .sheet { background: #fff; border: 1px solid #e0e4e8; border-radius: 10px; padding: 18px; margin-bottom: 16px; }
+.sheet-head { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; align-items: flex-start; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 2px solid #1a2027; }
+.sheet-title { font-size: 17px; font-weight: 700; }
+.sheet td { height: 30px; }
+.sheet td:nth-child(4), .sheet td:nth-child(5) { border-left: 1px solid #e8ecef; }
+
+@media print {
+  .tabs, .topbar, .noprint { display: none !important; }
+  body { background: #fff; }
+  .wrap { max-width: none; padding: 0; }
+  /* A division can run to 60 students, so a sheet may be taller than a page:
+     let it flow, but start each new sheet on a fresh page and repeat the
+     column headings and the event title on every page it spills onto. */
+  .sheet {
+    border: none; border-radius: 0; padding: 0; margin: 0;
+    break-after: page; page-break-after: always;
+  }
+  .sheet:last-child { break-after: auto; page-break-after: auto; }
+  .sheet thead { display: table-header-group; }
+  .sheet tr { break-inside: avoid; page-break-inside: avoid; }
+  .sheet-head { break-after: avoid; page-break-after: avoid; }
+  .sheet td { height: 26px; }
+  th { background: #f0f2f4 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  @page { margin: 14mm; }
+}

@@ -332,6 +332,8 @@ function StudentsTab({ students, setStudents, houses }) {
   const [filterYear, setFilterYear] = useState('');
   const [filterHouse, setFilterHouse] = useState('');
   const [search, setSearch] = useState('');
+  const [bulkTarget, setBulkTarget] = useState('');
+  const [bulkYear, setBulkYear] = useState('6');
 
   const add = () => {
     if (!draft.name.trim() || !draft.house) return alert('A student needs at least a name and a house.');
@@ -339,11 +341,35 @@ function StudentsTab({ students, setStudents, houses }) {
     setDraft({ ...draft, name: '', homegroup: '', beepTest: '' });
   };
 
+  const patch = (id, changes) => setStudents(students.map(s => s.id === id ? { ...s, ...changes } : s));
+
   const shown = students.filter(s =>
-    (!filterYear || s.yearLevel === filterYear) &&
+    (filterYear === '' || (filterYear === '__none' ? !s.yearLevel : s.yearLevel === filterYear)) &&
     (!filterHouse || s.house === filterHouse) &&
     (!search || s.name.toLowerCase().includes(search.toLowerCase()))
   );
+
+  const homegroups = Array.from(new Set(students.map(s => s.homegroup).filter(Boolean))).sort();
+
+  const applyBulk = () => {
+    if (!bulkTarget) return alert('Choose which students to change.');
+    let match;
+    if (bulkTarget === '__shown') {
+      const ids = new Set(shown.map(s => s.id));
+      match = (s) => ids.has(s.id);
+    } else if (bulkTarget.startsWith('hg:')) {
+      const hg = bulkTarget.slice(3);
+      match = (s) => s.homegroup === hg;
+    } else {
+      const yr = bulkTarget.slice(3);
+      match = (s) => (s.yearLevel || '') === yr;
+    }
+    const count = students.filter(match).length;
+    if (!count) return alert('That matches nobody.');
+    if (!confirm('Move ' + count + ' student' + (count === 1 ? '' : 's') + ' to Year ' + bulkYear + '?')) return;
+    setStudents(students.map(s => match(s) ? { ...s, yearLevel: bulkYear } : s));
+    setBulkTarget('');
+  };
 
   const houseName = (id) => (houses.find(h => h.id === id) || {}).name || '—';
 
@@ -394,6 +420,7 @@ function StudentsTab({ students, setStudents, houses }) {
             <select value={filterYear} onChange={e => setFilterYear(e.target.value)}>
               <option value="">All years</option>
               {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
+              <option value="__none">No year level set</option>
             </select>
           </label>
           <label className="fld">House
@@ -403,22 +430,43 @@ function StudentsTab({ students, setStudents, houses }) {
             </select>
           </label>
         </div>
+        <p className="muted" style={{ margin: '0 0 10px' }}>
+          Year, gender and house can all be changed straight in the table — edits save as you make them.
+        </p>
         <div className="scroll">
           <table>
             <thead>
-              <tr><th>Name</th><th>Year</th><th>Gender</th><th>House</th><th>Homegroup</th><th>Beep test</th><th></th></tr>
+              <tr><th>Name</th><th style={{ width: 110 }}>Year</th><th style={{ width: 120 }}>Gender</th>
+                <th style={{ width: 150 }}>House</th><th>Homegroup</th><th style={{ width: 110 }}>Beep test</th><th></th></tr>
             </thead>
             <tbody>
               {shown.map(s => (
                 <tr key={s.id}>
                   <td>{s.name}</td>
-                  <td>{s.yearLevel}</td>
-                  <td>{s.gender}</td>
-                  <td>{houseName(s.house)}</td>
+                  <td>
+                    <select value={s.yearLevel || ''} style={{ marginTop: 0 }}
+                      onChange={e => patch(s.id, { yearLevel: e.target.value })}>
+                      <option value="">—</option>
+                      {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
+                    </select>
+                  </td>
+                  <td>
+                    <select value={s.gender || 'Mixed'} style={{ marginTop: 0 }}
+                      onChange={e => patch(s.id, { gender: e.target.value })}>
+                      <option>Female</option><option>Male</option><option>Mixed</option>
+                    </select>
+                  </td>
+                  <td>
+                    <select value={s.house || ''} style={{ marginTop: 0 }}
+                      onChange={e => patch(s.id, { house: e.target.value })}>
+                      <option value="">—</option>
+                      {houses.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
+                    </select>
+                  </td>
                   <td className="muted">{s.homegroup}</td>
                   <td>
-                    <input type="text" value={s.beepTest || ''} style={{ width: 90, marginTop: 0 }}
-                      onChange={e => setStudents(students.map(x => x.id === s.id ? { ...x, beepTest: e.target.value } : x))} />
+                    <input type="text" value={s.beepTest || ''} style={{ marginTop: 0 }}
+                      onChange={e => patch(s.id, { beepTest: e.target.value })} />
                   </td>
                   <td>
                     <button className="btn-ghost btn-sm" onClick={() => {
@@ -431,6 +479,34 @@ function StudentsTab({ students, setStudents, houses }) {
           </table>
         </div>
         {shown.length === 0 && <p className="muted" style={{ marginTop: 12 }}>No students match. Use the Import tab to load a class list.</p>}
+      </div>
+
+      <div className="card">
+        <h3>Change a whole group at once</h3>
+        <p className="muted" style={{ marginTop: 0 }}>
+          For year rollover, or when a homegroup code didn't give the right year level on import.
+        </p>
+        <div className="row">
+          <label className="fld">These students
+            <select value={bulkTarget} onChange={e => setBulkTarget(e.target.value)}>
+              <option value="">Select…</option>
+              <option value="__shown">the {shown.length} shown by the filters above</option>
+              {homegroups.map(hg => (
+                <option key={hg} value={'hg:' + hg}>homegroup {hg} ({students.filter(s => s.homegroup === hg).length})</option>
+              ))}
+              {YEARS.map(y => (
+                <option key={y} value={'yr:' + y}>everyone in Year {y} ({students.filter(s => s.yearLevel === y).length})</option>
+              ))}
+              <option value="yr:">everyone with no year level ({students.filter(s => !s.yearLevel).length})</option>
+            </select>
+          </label>
+          <label className="fld">become Year
+            <select value={bulkYear} onChange={e => setBulkYear(e.target.value)}>
+              {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+          </label>
+          <button className="btn" onClick={applyBulk}>Apply</button>
+        </div>
       </div>
     </div>
   );
@@ -853,6 +929,186 @@ function DistrictTab({ events, students, results, prefs, setPrefs, settings, set
   );
 }
 
+function download(filename, text, mime) {
+  const blob = new Blob([text], { type: mime || 'text/plain;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+const csvCell = (v) => {
+  const s = String(v === null || v === undefined ? '' : v);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+};
+const toCsv = (rows) => rows.map(r => r.map(csvCell).join(',')).join('\r\n') + '\r\n';
+
+function SheetsTab({ events, students, results, houses }) {
+  const [eventId, setEventId] = useState('all');
+  const [year, setYear] = useState('all');
+  const [gender, setGender] = useState('all');
+  const [blankRows, setBlankRows] = useState(3);
+  const [withResults, setWithResults] = useState(false);
+
+  const houseName = (id) => (houses.find(h => h.id === id) || {}).name || '';
+  const studentsById = useMemo(() => {
+    const m = {}; students.forEach(s => { m[s.id] = s; }); return m;
+  }, [students]);
+
+  // One sheet per event x year x gender that has students in it.
+  const sheets = useMemo(() => {
+    const out = [];
+    const years = year === 'all' ? YEARS : [year];
+    const genders = gender === 'all' ? ['Female', 'Male', 'Mixed'] : [gender];
+    events.filter(ev => eventId === 'all' || ev.id === eventId).forEach(ev => {
+      years.forEach(y => {
+        if (eventId === 'all' && !ev.years.includes(y)) return; // skip year levels this event isn't run at
+        genders.forEach(g => {
+          const roll = students.filter(s => s.yearLevel === y && (s.gender || 'Mixed') === g);
+          if (!roll.length) return;
+          const ranked = rankFor(results, ev.id, y + ' ' + g, ev.scoring, studentsById);
+          const order = withResults
+            ? ranked.map(r => studentsById[r.studentId]).concat(roll.filter(s => !ranked.some(r => r.studentId === s.id)))
+            : roll.slice().sort((a, b) => (houseName(a.house) + a.name).localeCompare(houseName(b.house) + b.name));
+          out.push({ event: ev, year: y, gender: g, roll: order, ranked });
+        });
+      });
+    });
+    return out;
+  }, [events, students, results, eventId, year, gender, withResults, houses]);
+
+  const exportResultsCsv = () => {
+    const rows = [['Event', 'Year', 'Gender', 'Place', 'Student', 'House', 'Result', 'Unit']];
+    events.forEach(ev => {
+      const divisions = new Set();
+      results.filter(r => r.eventId === ev.id).forEach(r => {
+        const st = studentsById[r.studentId];
+        if (st) divisions.add(divisionOf(st));
+      });
+      Array.from(divisions).sort().forEach(division => {
+        rankFor(results, ev.id, division, ev.scoring, studentsById).forEach(r => {
+          const st = studentsById[r.studentId];
+          rows.push([ev.name, st.yearLevel, st.gender, r.place, st.name, houseName(st.house), r.result, ev.unit]);
+        });
+      });
+    });
+    if (rows.length === 1) return alert('No results recorded yet.');
+    download('athletics-results.csv', toCsv(rows), 'text/csv;charset=utf-8');
+  };
+
+  const exportSheetsCsv = () => {
+    const rows = [['Event', 'Year', 'Gender', 'Student', 'House', 'Result']];
+    sheets.forEach(sh => sh.roll.forEach(s => {
+      const hit = sh.ranked.find(r => r.studentId === s.id);
+      rows.push([sh.event.name, sh.year, sh.gender, s.name, houseName(s.house), hit ? hit.result : '']);
+    }));
+    if (rows.length === 1) return alert('Nothing to export — check the filters.');
+    download('athletics-event-sheets.csv', toCsv(rows), 'text/csv;charset=utf-8');
+  };
+
+  return (
+    <div>
+      <h2 className="noprint">Event sheets</h2>
+
+      <div className="card noprint">
+        <p className="muted" style={{ marginTop: 0 }}>
+          Recording sheets for carnival day — one page per event and division, with every student in that
+          division already listed. <strong>Print</strong> opens your browser's print dialog; choose
+          <em> Save as PDF</em> there if you want a file rather than paper.
+        </p>
+        <div className="row">
+          <label className="fld">Event
+            <select value={eventId} onChange={e => setEventId(e.target.value)}>
+              <option value="all">All events</option>
+              {events.map(ev => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
+            </select>
+          </label>
+          <label className="fld">Year
+            <select value={year} onChange={e => setYear(e.target.value)}>
+              <option value="all">All years</option>
+              {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+          </label>
+          <label className="fld">Gender
+            <select value={gender} onChange={e => setGender(e.target.value)}>
+              <option value="all">All</option>
+              <option>Female</option><option>Male</option><option>Mixed</option>
+            </select>
+          </label>
+          <label className="fld">Spare rows
+            <input type="number" min="0" max="10" value={blankRows}
+              onChange={e => setBlankRows(Math.max(0, Math.min(10, parseInt(e.target.value) || 0)))} />
+          </label>
+        </div>
+        <label style={{ fontSize: 14, display: 'block', marginBottom: 12 }}>
+          <input type="checkbox" checked={withResults} onChange={e => setWithResults(e.target.checked)} />
+          {' '}Fill in the results already recorded, in placing order (leave off for blank sheets to write on)
+        </label>
+        <div className="row">
+          <button className="btn" onClick={() => window.print()}>Print / save as PDF</button>
+          <button className="btn-ghost" onClick={exportSheetsCsv}>Download these sheets as CSV</button>
+          <button className="btn-ghost" onClick={exportResultsCsv}>Download all results as CSV</button>
+        </div>
+        <p className="muted" style={{ marginBottom: 0, marginTop: 12 }}>
+          {sheets.length} sheet{sheets.length === 1 ? '' : 's'} ready.
+        </p>
+      </div>
+
+      {sheets.length === 0 && <p className="muted noprint">Nothing matches those filters.</p>}
+
+      {sheets.map((sh, i) => (
+        <div className="sheet" key={sh.event.id + sh.year + sh.gender + i}>
+          <div className="sheet-head">
+            <div>
+              <div className="sheet-title">{sh.event.name} — Year {sh.year} {sh.gender}</div>
+              <div className="muted">
+                {sh.event.scoring === 'lower' ? 'Fastest wins' : 'Furthest / highest wins'} · record in {sh.event.unit}
+              </div>
+            </div>
+            <div className="muted" style={{ textAlign: 'right' }}>
+              Marshal: ______________________<br />Date: ______________
+            </div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th style={{ width: 34 }}>#</th>
+                <th>Student</th>
+                <th style={{ width: 110 }}>House</th>
+                <th style={{ width: 110 }}>Result</th>
+                <th style={{ width: 60 }}>Place</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sh.roll.map((s, idx) => {
+                const hit = sh.ranked.find(r => r.studentId === s.id);
+                return (
+                  <tr key={s.id}>
+                    <td className="muted">{idx + 1}</td>
+                    <td>{s.name}</td>
+                    <td className="muted">{houseName(s.house)}</td>
+                    <td>{withResults && hit ? hit.result : ''}</td>
+                    <td>{withResults && hit ? hit.place : ''}</td>
+                  </tr>
+                );
+              })}
+              {Array.from({ length: blankRows }).map((_, k) => (
+                <tr key={'blank' + k}>
+                  <td className="muted">{sh.roll.length + k + 1}</td>
+                  <td></td><td></td><td></td><td></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /* ---------------------------------------------------------------- shell */
 
 function App() {
@@ -873,7 +1129,7 @@ function App() {
 
   const TABS = [
     ['events', 'Events'], ['houses', 'Houses'], ['students', 'Students'],
-    ['import', 'Import'], ['results', 'Results'], ['district', 'District'],
+    ['import', 'Import'], ['results', 'Results'], ['sheets', 'Event sheets'], ['district', 'District'],
   ];
 
   return (
@@ -902,6 +1158,7 @@ function App() {
       {tab === 'students' && <StudentsTab students={students} setStudents={setStudents} houses={houses} />}
       {tab === 'import'   && <ImportTab   students={students} setStudents={setStudents} houses={houses} setHouses={setHouses} />}
       {tab === 'results'  && <ResultsTab  events={events} students={students} results={results} setResults={setResults} houses={houses} />}
+      {tab === 'sheets'   && <SheetsTab   events={events} students={students} results={results} houses={houses} />}
       {tab === 'district' && <DistrictTab events={events} students={students} results={results} prefs={prefs} setPrefs={setPrefs} settings={settings} setSettings={setSettings} />}
     </div>
   );

@@ -22,10 +22,26 @@ to regenerate `index.html`.
 | --- | --- |
 | **Events** | The standard program is pre-loaded — 100m, 200m, 800m, 1500m, 80m hurdles, long/triple/high jump, shot put, discus, 4x100m relay — each with the year levels it runs at and whether the winner is the fastest or the furthest. Add your own. |
 | **Houses** | House cards with student counts and live points (3/2/1 for the first three places in every event and division), plus a ranked bar chart. |
-| **Students** | The whole list, filterable by year, house and name. Beep test scores are editable straight from the table. |
+| **Students** | The whole list, filterable by year, house and name. Year level, gender, house and beep test are all editable straight in the table. **Change a whole group at once** moves a homegroup, a year level, everyone currently shown by the filters, or everyone missing a year level — for rollover, or when a homegroup code didn't give the right year on import. |
 | **Import** | Paste four columns out of Excel — **Name, Gender, Homegroup, House** — or load a `.json`/`.csv`. Year level is read from the homegroup code (`I3P` → 3), houses named in the file are created if they don't exist, and re-importing skips anyone already on the list. Everything previews before it applies. There's a download button here to back the list up. |
 | **Results** | Pick event + year + gender and type times down the list. Placings rank themselves as you type, first three shaded. Handles `m:ss.s` for the 800m and 1500m. |
+| **Event sheets** | Printable recording sheets — see below. |
 | **District** | The interesting one — see below. |
+
+## Event sheets
+
+One sheet per event and division, with every student in that division already listed by house,
+numbered, with blank **Result** and **Place** columns and lines for the marshal's name and the date.
+Filter to a single event, year or gender, or print the whole carnival at once. Spare rows at the
+bottom are configurable.
+
+- **Print / save as PDF** opens the browser print dialog — pick *Save as PDF* there for a file.
+  Each sheet starts on a fresh page; a division too long for one page carries on with the column
+  headings repeated.
+- **Fill in the results already recorded** switches the same sheets from blank to completed, in
+  placing order — handy for pinning up results or filing them after the carnival.
+- **Download these sheets as CSV** / **Download all results as CSV** for anything you'd rather do
+  in Excel.
 
 ## Picking the district team
 
