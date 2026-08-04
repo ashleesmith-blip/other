@@ -401,7 +401,8 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
 const {
   useState,
   useEffect,
-  useMemo
+  useMemo,
+  useCallback
 } = React;
 const store = typeof window !== 'undefined' && window.storage ? window.storage : localStorage;
 const load = (k, fallback) => {
@@ -514,6 +515,10 @@ const DEFAULT_EVENTS = [{
 // The most table rows that clear the text area of an A4 page at the print
 // sizes in styles.css. Measured, not guessed — see the print block there.
 const MAX_ROWS_PER_A4 = 34;
+
+// How many student rows the editable table renders at once. See the note in
+// StudentsTab: rendering a whole school made typing lag.
+const ROW_LIMIT = 100;
 const uid = p => p + '_' + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
 
 // "1:23.4" -> 83.4 ; "12.55" -> 12.55 ; "3.20" -> 3.2
@@ -536,15 +541,21 @@ const divKey = (eventId, division) => eventId + '::' + division;
 const GENDERS = ['Female', 'Male', 'Mixed'];
 
 /*
- * Every event-and-division gets a sheet number, printed big on its recording
- * sheet, so whoever types the results up can jump straight to the right list.
+ * Every event-and-division that will actually be run gets a sheet number,
+ * printed big on its recording sheet, so whoever types the results up can jump
+ * straight to the right list.
  *
- * The numbering walks the event program in a fixed order and deliberately
- * ignores who is enrolled: a sheet handed in on Monday has to still mean the
- * same thing on Friday, and students get added, moved and re-graded all the
- * time. Only editing the event list itself renumbers anything.
+ * A division only counts if the event runs at that year level *and* there are
+ * students in that year and gender — numbering the empty combinations would
+ * push the numbers into the hundreds and hand out sheet numbers that resolve to
+ * nobody. The consequence is that numbers shift if a division goes from empty
+ * to populated, so load the class list before printing.
  */
-function buildSheetIndex(events) {
+function buildSheetIndex(events, students) {
+  const populated = new Set();
+  (students || []).forEach(s => {
+    if (s.yearLevel) populated.add(s.yearLevel + ' ' + (s.gender || 'Mixed'));
+  });
   const byKey = {};
   const byNumber = {};
   let n = 0;
@@ -552,6 +563,7 @@ function buildSheetIndex(events) {
     YEARS.forEach(y => {
       if (!ev.years.includes(y)) return;
       GENDERS.forEach(g => {
+        if (!populated.has(y + ' ' + g)) return;
         n += 1;
         byKey[divKey(ev.id, y + ' ' + g)] = n;
         byNumber[n] = {
@@ -975,6 +987,87 @@ function HousesTab({
     onClick: add
   }, "Add house"))));
 }
+
+/*
+ * Memoised so that typing in one cell re-renders one row rather than all 373.
+ * Every callback it receives has to keep a stable identity for that to hold —
+ * see the useCallback block in StudentsTab.
+ */
+const StudentRow = React.memo(function StudentRow({
+  s,
+  houses,
+  onPatch,
+  onRemove,
+  onFocus
+}) {
+  const set = field => e => onPatch(s.id, {
+    [field]: e.target.value
+  });
+  return /*#__PURE__*/React.createElement("tr", {
+    onFocus: () => onFocus(s.id)
+  }, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("input", {
+    type: "text",
+    value: s.name,
+    style: {
+      marginTop: 0
+    },
+    "aria-label": "Student name",
+    onChange: set('name')
+  })), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("select", {
+    value: s.yearLevel || '',
+    style: {
+      marginTop: 0
+    },
+    "aria-label": "Year level",
+    onChange: set('yearLevel')
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "\u2014"), YEARS.map(y => /*#__PURE__*/React.createElement("option", {
+    key: y,
+    value: y
+  }, y)))), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("select", {
+    value: s.gender || 'Mixed',
+    style: {
+      marginTop: 0
+    },
+    "aria-label": "Gender",
+    onChange: set('gender')
+  }, GENDERS.map(g => /*#__PURE__*/React.createElement("option", {
+    key: g,
+    value: g
+  }, g)))), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("select", {
+    value: s.house || '',
+    style: {
+      marginTop: 0
+    },
+    "aria-label": "House",
+    onChange: set('house')
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "\u2014"), houses.map(h => /*#__PURE__*/React.createElement("option", {
+    key: h.id,
+    value: h.id
+  }, h.name)))), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("input", {
+    type: "text",
+    value: s.homegroup || '',
+    style: {
+      marginTop: 0
+    },
+    "aria-label": "Homegroup",
+    onChange: set('homegroup')
+  })), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("input", {
+    type: "text",
+    value: s.beepTest || '',
+    style: {
+      marginTop: 0
+    },
+    "aria-label": "Beep test",
+    onChange: set('beepTest')
+  })), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("button", {
+    className: "btn-ghost btn-sm",
+    onClick: () => onRemove(s)
+  }, "Remove")));
+});
 function StudentsTab({
   students,
   setStudents,
@@ -993,6 +1086,7 @@ function StudentsTab({
   const [search, setSearch] = useState('');
   const [bulkTarget, setBulkTarget] = useState('');
   const [bulkYear, setBulkYear] = useState('6');
+  const [editingId, setEditingId] = useState(null);
   const add = () => {
     if (!draft.name.trim() || !draft.house) return alert('A student needs at least a name and a house.');
     setStudents(students.concat([{
@@ -1007,11 +1101,43 @@ function StudentsTab({
       beepTest: ''
     });
   };
-  const patch = (id, changes) => setStudents(students.map(s => s.id === id ? {
-    ...s,
-    ...changes
-  } : s));
-  const shown = students.filter(s => (filterYear === '' || (filterYear === '__none' ? !s.yearLevel : s.yearLevel === filterYear)) && (!filterHouse || s.house === filterHouse) && (!search || s.name.toLowerCase().includes(search.toLowerCase())));
+
+  // Stable identities, so StudentRow's memo actually holds. The functional form
+  // of setStudents means these never need to close over the current list.
+  const patch = useCallback((id, changes) => {
+    setStudents(prev => prev.map(s => s.id === id ? {
+      ...s,
+      ...changes
+    } : s));
+  }, [setStudents]);
+  const removeStudent = useCallback(s => {
+    if (confirm('Remove ' + s.name + '?')) setStudents(prev => prev.filter(x => x.id !== s.id));
+  }, [setStudents]);
+  const noteEditing = useCallback(id => setEditingId(id), []);
+  const matches = s => (filterYear === '' || (filterYear === '__none' ? !s.yearLevel : s.yearLevel === filterYear)) && (!filterHouse || s.house === filterHouse) && (!search || s.name.toLowerCase().includes(search.toLowerCase()));
+
+  /*
+   * The row being edited stays put even once it stops matching the filters —
+   * otherwise correcting a name while searching for it yanks the row out from
+   * under the cursor on the first keystroke. Changing a filter clears the pin.
+   */
+  const matching = students.filter(s => matches(s) || s.id === editingId);
+
+  /*
+   * Only ever render a slice. A whole school is ~400 rows of six controls each,
+   * and re-rendering that on every keystroke made typing a name visibly lag.
+   * The row being edited is always kept in the slice so it can't scroll out of
+   * existence underneath the cursor.
+   */
+  const shown = matching.length > ROW_LIMIT ? (() => {
+    const head = matching.slice(0, ROW_LIMIT);
+    if (editingId && !head.some(s => s.id === editingId)) {
+      const pinned = matching.find(s => s.id === editingId);
+      if (pinned) return [pinned].concat(head.slice(0, ROW_LIMIT - 1));
+    }
+    return head;
+  })() : matching;
+  const hidden = matching.length - shown.length;
   const homegroups = Array.from(new Set(students.map(s => s.homegroup).filter(Boolean))).sort();
   const applyBulk = () => {
     if (!bulkTarget) return alert('Choose which students to change.');
@@ -1116,13 +1242,19 @@ function StudentsTab({
   }, "Search", /*#__PURE__*/React.createElement("input", {
     type: "text",
     value: search,
-    onChange: e => setSearch(e.target.value),
-    placeholder: "name\u2026"
+    placeholder: "name\u2026",
+    onChange: e => {
+      setSearch(e.target.value);
+      setEditingId(null);
+    }
   })), /*#__PURE__*/React.createElement("label", {
     className: "fld"
   }, "Year", /*#__PURE__*/React.createElement("select", {
     value: filterYear,
-    onChange: e => setFilterYear(e.target.value)
+    onChange: e => {
+      setFilterYear(e.target.value);
+      setEditingId(null);
+    }
   }, /*#__PURE__*/React.createElement("option", {
     value: ""
   }, "All years"), YEARS.map(y => /*#__PURE__*/React.createElement("option", {
@@ -1134,7 +1266,10 @@ function StudentsTab({
     className: "fld"
   }, "House", /*#__PURE__*/React.createElement("select", {
     value: filterHouse,
-    onChange: e => setFilterHouse(e.target.value)
+    onChange: e => {
+      setFilterHouse(e.target.value);
+      setEditingId(null);
+    }
   }, /*#__PURE__*/React.createElement("option", {
     value: ""
   }, "All houses"), houses.map(h => /*#__PURE__*/React.createElement("option", {
@@ -1145,82 +1280,50 @@ function StudentsTab({
     style: {
       margin: '0 0 10px'
     }
-  }, "Year, gender and house can all be changed straight in the table \u2014 edits save as you make them."), /*#__PURE__*/React.createElement("div", {
+  }, "Every column is editable straight in the table \u2014 name, year, gender, house, homegroup and beep test. Edits save as you make them."), /*#__PURE__*/React.createElement("div", {
     className: "scroll"
   }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Name"), /*#__PURE__*/React.createElement("th", {
     style: {
-      width: 110
+      width: 100
     }
   }, "Year"), /*#__PURE__*/React.createElement("th", {
     style: {
-      width: 120
+      width: 115
     }
   }, "Gender"), /*#__PURE__*/React.createElement("th", {
     style: {
-      width: 150
+      width: 140
     }
-  }, "House"), /*#__PURE__*/React.createElement("th", null, "Homegroup"), /*#__PURE__*/React.createElement("th", {
+  }, "House"), /*#__PURE__*/React.createElement("th", {
     style: {
       width: 110
     }
-  }, "Beep test"), /*#__PURE__*/React.createElement("th", null))), /*#__PURE__*/React.createElement("tbody", null, shown.map(s => /*#__PURE__*/React.createElement("tr", {
-    key: s.id
-  }, /*#__PURE__*/React.createElement("td", null, s.name), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("select", {
-    value: s.yearLevel || '',
+  }, "Homegroup"), /*#__PURE__*/React.createElement("th", {
     style: {
-      marginTop: 0
-    },
-    onChange: e => patch(s.id, {
-      yearLevel: e.target.value
-    })
-  }, /*#__PURE__*/React.createElement("option", {
-    value: ""
-  }, "\u2014"), YEARS.map(y => /*#__PURE__*/React.createElement("option", {
-    key: y,
-    value: y
-  }, y)))), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("select", {
-    value: s.gender || 'Mixed',
-    style: {
-      marginTop: 0
-    },
-    onChange: e => patch(s.id, {
-      gender: e.target.value
-    })
-  }, /*#__PURE__*/React.createElement("option", null, "Female"), /*#__PURE__*/React.createElement("option", null, "Male"), /*#__PURE__*/React.createElement("option", null, "Mixed"))), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("select", {
-    value: s.house || '',
-    style: {
-      marginTop: 0
-    },
-    onChange: e => patch(s.id, {
-      house: e.target.value
-    })
-  }, /*#__PURE__*/React.createElement("option", {
-    value: ""
-  }, "\u2014"), houses.map(h => /*#__PURE__*/React.createElement("option", {
-    key: h.id,
-    value: h.id
-  }, h.name)))), /*#__PURE__*/React.createElement("td", {
-    className: "muted"
-  }, s.homegroup), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("input", {
-    type: "text",
-    value: s.beepTest || '',
-    style: {
-      marginTop: 0
-    },
-    onChange: e => patch(s.id, {
-      beepTest: e.target.value
-    })
-  })), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("button", {
-    className: "btn-ghost btn-sm",
-    onClick: () => {
-      if (confirm('Remove ' + s.name + '?')) setStudents(students.filter(x => x.id !== s.id));
+      width: 100
     }
-  }, "Remove"))))))), shown.length === 0 && /*#__PURE__*/React.createElement("p", {
+  }, "Beep test"), /*#__PURE__*/React.createElement("th", {
+    style: {
+      width: 90
+    }
+  }))), /*#__PURE__*/React.createElement("tbody", null, shown.map(s => /*#__PURE__*/React.createElement(StudentRow, {
+    key: s.id,
+    s: s,
+    houses: houses,
+    onPatch: patch,
+    onRemove: removeStudent,
+    onFocus: noteEditing
+  }))))), shown.length === 0 && /*#__PURE__*/React.createElement("p", {
     className: "muted",
     style: {
       marginTop: 12
     }
-  }, "No students match. Use the Import tab to load a class list.")), /*#__PURE__*/React.createElement("div", {
+  }, "No students match. Use the Import tab to load a class list."), hidden > 0 && /*#__PURE__*/React.createElement("p", {
+    className: "muted",
+    style: {
+      marginTop: 10
+    }
+  }, "Showing ", shown.length, " of ", matching.length, ". Search or filter to reach the other ", hidden, ".")), /*#__PURE__*/React.createElement("div", {
     className: "card"
   }, /*#__PURE__*/React.createElement("h3", null, "Change a whole group at once"), /*#__PURE__*/React.createElement("p", {
     className: "muted",
@@ -1457,7 +1560,7 @@ function ResultsTab({
     });
     return m;
   }, [students]);
-  const sheetIndex = useMemo(() => buildSheetIndex(events), [events]);
+  const sheetIndex = useMemo(() => buildSheetIndex(events, students), [events, students]);
   const currentSheetNo = sheetIndex.byKey[divKey(eventId, division)];
 
   // Typing the number off a returned recording sheet sets all three selects.
@@ -1527,7 +1630,7 @@ function ResultsTab({
       paddingBottom: 10
     },
     className: "muted"
-  }, sheetNo === '' ? 'Straight off the top of a returned recording sheet — it jumps to that list.' : sheetLookup ? /*#__PURE__*/React.createElement("span", null, "\u2192 ", /*#__PURE__*/React.createElement("strong", null, sheetLookup.event.name), ", Year ", sheetLookup.year, " ", sheetLookup.gender) : /*#__PURE__*/React.createElement("span", {
+  }, sheetIndex.total === 0 ? 'Sheet numbers appear once the class list is loaded — see the Import tab.' : sheetNo === '' ? 'Straight off the top of a returned recording sheet — it jumps to that list.' : sheetLookup ? /*#__PURE__*/React.createElement("span", null, "\u2192 ", /*#__PURE__*/React.createElement("strong", null, sheetLookup.event.name), ", Year ", sheetLookup.year, " ", sheetLookup.gender) : /*#__PURE__*/React.createElement("span", {
     style: {
       color: '#b45309'
     }
@@ -1805,7 +1908,7 @@ function SheetsTab({
     });
     return m;
   }, [students]);
-  const sheetIndex = useMemo(() => buildSheetIndex(events), [events]);
+  const sheetIndex = useMemo(() => buildSheetIndex(events, students), [events, students]);
 
   /*
    * One printed page per sheet. A year-level-and-gender division can run to 60
@@ -1934,7 +2037,7 @@ function SheetsTab({
     style: {
       marginTop: 0
     }
-  }, "Each sheet is one A4 page and carries a ", /*#__PURE__*/React.createElement("strong", null, "sheet number"), " in the top corner \u2014 type that into the Results tab to jump straight to the right list. A division with more students than fits carries on across extra pages under the same sheet number, so nothing runs off the bottom. Up to ", MAX_ROWS_PER_A4, " rows clear an A4 page. The write-in rows are blank lines at the end for adding anyone not on the list."), /*#__PURE__*/React.createElement("label", {
+  }, "Each sheet is one A4 page and carries a ", /*#__PURE__*/React.createElement("strong", null, "sheet number"), " in the top corner \u2014 type that into the Results tab to jump straight to the right list. Only divisions that have students are numbered, so load the class list before printing. A division with more students than fits carries on across extra pages under the same sheet number, so nothing runs off the bottom. Up to ", MAX_ROWS_PER_A4, " rows clear an A4 page. The write-in rows are blank lines at the end for adding anyone not on the list."), /*#__PURE__*/React.createElement("label", {
     style: {
       fontSize: 14,
       display: 'block',

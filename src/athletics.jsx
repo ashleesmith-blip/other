@@ -1,4 +1,4 @@
-const { useState, useEffect, useMemo } = React;
+const { useState, useEffect, useMemo, useCallback } = React;
 
 const store = (typeof window !== 'undefined' && window.storage) ? window.storage : localStorage;
 const load = (k, fallback) => {
@@ -34,6 +34,10 @@ const DEFAULT_EVENTS = [
 // sizes in styles.css. Measured, not guessed — see the print block there.
 const MAX_ROWS_PER_A4 = 34;
 
+// How many student rows the editable table renders at once. See the note in
+// StudentsTab: rendering a whole school made typing lag.
+const ROW_LIMIT = 100;
+
 const uid = (p) => p + '_' + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
 
 // "1:23.4" -> 83.4 ; "12.55" -> 12.55 ; "3.20" -> 3.2
@@ -57,15 +61,22 @@ const divKey = (eventId, division) => eventId + '::' + division;
 const GENDERS = ['Female', 'Male', 'Mixed'];
 
 /*
- * Every event-and-division gets a sheet number, printed big on its recording
- * sheet, so whoever types the results up can jump straight to the right list.
+ * Every event-and-division that will actually be run gets a sheet number,
+ * printed big on its recording sheet, so whoever types the results up can jump
+ * straight to the right list.
  *
- * The numbering walks the event program in a fixed order and deliberately
- * ignores who is enrolled: a sheet handed in on Monday has to still mean the
- * same thing on Friday, and students get added, moved and re-graded all the
- * time. Only editing the event list itself renumbers anything.
+ * A division only counts if the event runs at that year level *and* there are
+ * students in that year and gender — numbering the empty combinations would
+ * push the numbers into the hundreds and hand out sheet numbers that resolve to
+ * nobody. The consequence is that numbers shift if a division goes from empty
+ * to populated, so load the class list before printing.
  */
-function buildSheetIndex(events) {
+function buildSheetIndex(events, students) {
+  const populated = new Set();
+  (students || []).forEach(s => {
+    if (s.yearLevel) populated.add(s.yearLevel + ' ' + (s.gender || 'Mixed'));
+  });
+
   const byKey = {};
   const byNumber = {};
   let n = 0;
@@ -73,6 +84,7 @@ function buildSheetIndex(events) {
     YEARS.forEach(y => {
       if (!ev.years.includes(y)) return;
       GENDERS.forEach(g => {
+        if (!populated.has(y + ' ' + g)) return;
         n += 1;
         byKey[divKey(ev.id, y + ' ' + g)] = n;
         byNumber[n] = { eventId: ev.id, year: y, gender: g, event: ev };
@@ -359,6 +371,51 @@ function HousesTab({ houses, setHouses, students, events, results }) {
   );
 }
 
+/*
+ * Memoised so that typing in one cell re-renders one row rather than all 373.
+ * Every callback it receives has to keep a stable identity for that to hold —
+ * see the useCallback block in StudentsTab.
+ */
+const StudentRow = React.memo(function StudentRow({ s, houses, onPatch, onRemove, onFocus }) {
+  const set = (field) => (e) => onPatch(s.id, { [field]: e.target.value });
+  return (
+    <tr onFocus={() => onFocus(s.id)}>
+      <td>
+        <input type="text" value={s.name} style={{ marginTop: 0 }} aria-label="Student name"
+          onChange={set('name')} />
+      </td>
+      <td>
+        <select value={s.yearLevel || ''} style={{ marginTop: 0 }} aria-label="Year level" onChange={set('yearLevel')}>
+          <option value="">—</option>
+          {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
+        </select>
+      </td>
+      <td>
+        <select value={s.gender || 'Mixed'} style={{ marginTop: 0 }} aria-label="Gender" onChange={set('gender')}>
+          {GENDERS.map(g => <option key={g} value={g}>{g}</option>)}
+        </select>
+      </td>
+      <td>
+        <select value={s.house || ''} style={{ marginTop: 0 }} aria-label="House" onChange={set('house')}>
+          <option value="">—</option>
+          {houses.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
+        </select>
+      </td>
+      <td>
+        <input type="text" value={s.homegroup || ''} style={{ marginTop: 0 }} aria-label="Homegroup"
+          onChange={set('homegroup')} />
+      </td>
+      <td>
+        <input type="text" value={s.beepTest || ''} style={{ marginTop: 0 }} aria-label="Beep test"
+          onChange={set('beepTest')} />
+      </td>
+      <td>
+        <button className="btn-ghost btn-sm" onClick={() => onRemove(s)}>Remove</button>
+      </td>
+    </tr>
+  );
+});
+
 function StudentsTab({ students, setStudents, houses }) {
   const [draft, setDraft] = useState({ name: '', yearLevel: '5', gender: 'Female', house: '', homegroup: '', beepTest: '' });
   const [filterYear, setFilterYear] = useState('');
@@ -366,6 +423,7 @@ function StudentsTab({ students, setStudents, houses }) {
   const [search, setSearch] = useState('');
   const [bulkTarget, setBulkTarget] = useState('');
   const [bulkYear, setBulkYear] = useState('6');
+  const [editingId, setEditingId] = useState(null);
 
   const add = () => {
     if (!draft.name.trim() || !draft.house) return alert('A student needs at least a name and a house.');
@@ -373,13 +431,48 @@ function StudentsTab({ students, setStudents, houses }) {
     setDraft({ ...draft, name: '', homegroup: '', beepTest: '' });
   };
 
-  const patch = (id, changes) => setStudents(students.map(s => s.id === id ? { ...s, ...changes } : s));
+  // Stable identities, so StudentRow's memo actually holds. The functional form
+  // of setStudents means these never need to close over the current list.
+  const patch = useCallback((id, changes) => {
+    setStudents(prev => prev.map(s => s.id === id ? { ...s, ...changes } : s));
+  }, [setStudents]);
 
-  const shown = students.filter(s =>
+  const removeStudent = useCallback((s) => {
+    if (confirm('Remove ' + s.name + '?')) setStudents(prev => prev.filter(x => x.id !== s.id));
+  }, [setStudents]);
+
+  const noteEditing = useCallback((id) => setEditingId(id), []);
+
+  const matches = (s) => (
     (filterYear === '' || (filterYear === '__none' ? !s.yearLevel : s.yearLevel === filterYear)) &&
     (!filterHouse || s.house === filterHouse) &&
     (!search || s.name.toLowerCase().includes(search.toLowerCase()))
   );
+
+  /*
+   * The row being edited stays put even once it stops matching the filters —
+   * otherwise correcting a name while searching for it yanks the row out from
+   * under the cursor on the first keystroke. Changing a filter clears the pin.
+   */
+  const matching = students.filter(s => matches(s) || s.id === editingId);
+
+  /*
+   * Only ever render a slice. A whole school is ~400 rows of six controls each,
+   * and re-rendering that on every keystroke made typing a name visibly lag.
+   * The row being edited is always kept in the slice so it can't scroll out of
+   * existence underneath the cursor.
+   */
+  const shown = matching.length > ROW_LIMIT
+    ? (() => {
+        const head = matching.slice(0, ROW_LIMIT);
+        if (editingId && !head.some(s => s.id === editingId)) {
+          const pinned = matching.find(s => s.id === editingId);
+          if (pinned) return [pinned].concat(head.slice(0, ROW_LIMIT - 1));
+        }
+        return head;
+      })()
+    : matching;
+  const hidden = matching.length - shown.length;
 
   const homegroups = Array.from(new Set(students.map(s => s.homegroup).filter(Boolean))).sort();
 
@@ -446,71 +539,48 @@ function StudentsTab({ students, setStudents, houses }) {
       <div className="card">
         <div className="row" style={{ marginBottom: 12 }}>
           <label className="fld">Search
-            <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="name…" />
+            <input type="text" value={search} placeholder="name…"
+              onChange={e => { setSearch(e.target.value); setEditingId(null); }} />
           </label>
           <label className="fld">Year
-            <select value={filterYear} onChange={e => setFilterYear(e.target.value)}>
+            <select value={filterYear} onChange={e => { setFilterYear(e.target.value); setEditingId(null); }}>
               <option value="">All years</option>
               {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
               <option value="__none">No year level set</option>
             </select>
           </label>
           <label className="fld">House
-            <select value={filterHouse} onChange={e => setFilterHouse(e.target.value)}>
+            <select value={filterHouse} onChange={e => { setFilterHouse(e.target.value); setEditingId(null); }}>
               <option value="">All houses</option>
               {houses.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
             </select>
           </label>
         </div>
         <p className="muted" style={{ margin: '0 0 10px' }}>
-          Year, gender and house can all be changed straight in the table — edits save as you make them.
+          Every column is editable straight in the table — name, year, gender, house, homegroup and
+          beep test. Edits save as you make them.
         </p>
         <div className="scroll">
           <table>
             <thead>
-              <tr><th>Name</th><th style={{ width: 110 }}>Year</th><th style={{ width: 120 }}>Gender</th>
-                <th style={{ width: 150 }}>House</th><th>Homegroup</th><th style={{ width: 110 }}>Beep test</th><th></th></tr>
+              <tr><th>Name</th><th style={{ width: 100 }}>Year</th><th style={{ width: 115 }}>Gender</th>
+                <th style={{ width: 140 }}>House</th><th style={{ width: 110 }}>Homegroup</th>
+                <th style={{ width: 100 }}>Beep test</th><th style={{ width: 90 }}></th></tr>
             </thead>
             <tbody>
               {shown.map(s => (
-                <tr key={s.id}>
-                  <td>{s.name}</td>
-                  <td>
-                    <select value={s.yearLevel || ''} style={{ marginTop: 0 }}
-                      onChange={e => patch(s.id, { yearLevel: e.target.value })}>
-                      <option value="">—</option>
-                      {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
-                    </select>
-                  </td>
-                  <td>
-                    <select value={s.gender || 'Mixed'} style={{ marginTop: 0 }}
-                      onChange={e => patch(s.id, { gender: e.target.value })}>
-                      <option>Female</option><option>Male</option><option>Mixed</option>
-                    </select>
-                  </td>
-                  <td>
-                    <select value={s.house || ''} style={{ marginTop: 0 }}
-                      onChange={e => patch(s.id, { house: e.target.value })}>
-                      <option value="">—</option>
-                      {houses.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
-                    </select>
-                  </td>
-                  <td className="muted">{s.homegroup}</td>
-                  <td>
-                    <input type="text" value={s.beepTest || ''} style={{ marginTop: 0 }}
-                      onChange={e => patch(s.id, { beepTest: e.target.value })} />
-                  </td>
-                  <td>
-                    <button className="btn-ghost btn-sm" onClick={() => {
-                      if (confirm('Remove ' + s.name + '?')) setStudents(students.filter(x => x.id !== s.id));
-                    }}>Remove</button>
-                  </td>
-                </tr>
+                <StudentRow key={s.id} s={s} houses={houses}
+                  onPatch={patch} onRemove={removeStudent} onFocus={noteEditing} />
               ))}
             </tbody>
           </table>
         </div>
         {shown.length === 0 && <p className="muted" style={{ marginTop: 12 }}>No students match. Use the Import tab to load a class list.</p>}
+        {hidden > 0 && (
+          <p className="muted" style={{ marginTop: 10 }}>
+            Showing {shown.length} of {matching.length}. Search or filter to reach the other {hidden}.
+          </p>
+        )}
       </div>
 
       <div className="card">
@@ -721,7 +791,7 @@ function ResultsTab({ events, students, results, setResults, houses }) {
   const studentsById = useMemo(() => {
     const m = {}; students.forEach(s => { m[s.id] = s; }); return m;
   }, [students]);
-  const sheetIndex = useMemo(() => buildSheetIndex(events), [events]);
+  const sheetIndex = useMemo(() => buildSheetIndex(events, students), [events, students]);
   const currentSheetNo = sheetIndex.byKey[divKey(eventId, division)];
 
   // Typing the number off a returned recording sheet sets all three selects.
@@ -770,10 +840,12 @@ function ResultsTab({ events, students, results, setResults, houses }) {
               onChange={e => goToSheet(e.target.value)} />
           </label>
           <div style={{ flex: '2 1 260px', paddingBottom: 10 }} className="muted">
-            {sheetNo === '' ? 'Straight off the top of a returned recording sheet — it jumps to that list.'
-              : sheetLookup
-                ? <span>→ <strong>{sheetLookup.event.name}</strong>, Year {sheetLookup.year} {sheetLookup.gender}</span>
-                : <span style={{ color: '#b45309' }}>No sheet {sheetNo}. They run 1 to {sheetIndex.total}.</span>}
+            {sheetIndex.total === 0
+              ? 'Sheet numbers appear once the class list is loaded — see the Import tab.'
+              : sheetNo === '' ? 'Straight off the top of a returned recording sheet — it jumps to that list.'
+                : sheetLookup
+                  ? <span>→ <strong>{sheetLookup.event.name}</strong>, Year {sheetLookup.year} {sheetLookup.gender}</span>
+                  : <span style={{ color: '#b45309' }}>No sheet {sheetNo}. They run 1 to {sheetIndex.total}.</span>}
           </div>
         </div>
         <div className="row">
@@ -1026,7 +1098,7 @@ function SheetsTab({ events, students, results, houses }) {
   const studentsById = useMemo(() => {
     const m = {}; students.forEach(s => { m[s.id] = s; }); return m;
   }, [students]);
-  const sheetIndex = useMemo(() => buildSheetIndex(events), [events]);
+  const sheetIndex = useMemo(() => buildSheetIndex(events, students), [events, students]);
 
   /*
    * One printed page per sheet. A year-level-and-gender division can run to 60
@@ -1140,7 +1212,8 @@ function SheetsTab({ events, students, results, houses }) {
         </div>
         <p className="muted" style={{ marginTop: 0 }}>
           Each sheet is one A4 page and carries a <strong>sheet number</strong> in the top corner —
-          type that into the Results tab to jump straight to the right list. A division with more
+          type that into the Results tab to jump straight to the right list. Only divisions that
+          have students are numbered, so load the class list before printing. A division with more
           students than fits carries on across extra pages under the same sheet number, so nothing
           runs off the bottom. Up to {MAX_ROWS_PER_A4} rows clear an A4 page. The write-in rows are
           blank lines at the end for adding anyone not on the list.
