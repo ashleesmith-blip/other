@@ -21,11 +21,12 @@ to regenerate `index.html`.
 | Tab | What it does |
 | --- | --- |
 | **Events** | The standard program is pre-loaded — 100m, 200m, 800m, 1500m, 80m hurdles, long/triple/high jump, shot put, discus, 4x100m relay — each with the year levels it runs at and whether the winner is the fastest or the furthest. Add your own. |
-| **Houses** | House cards with student counts and live points (3/2/1 for the first three places in every event and division), plus a ranked bar chart. |
+| **Houses** | The overall tally — participation and placing points per house, ranked, with the breakdown. Fed entirely by the Points tab. |
 | **Students** | The whole list, filterable by year, house and name. Every column is editable straight in the table — name, year, gender, house, homegroup and beep test. A hundred rows show at a time; search or filter to reach the rest. **Change a whole group at once** moves a homegroup, a year level, everyone currently shown by the filters, or everyone missing a year level — for rollover, or when a homegroup code didn't give the right year on import. |
 | **Import** | Paste four columns out of Excel — **Name, Gender, Homegroup, House** — or load a `.json`/`.csv`. Year level is read from the homegroup code (`I3P` → 3), houses named in the file are created if they don't exist, and re-importing skips anyone already on the list. Everything previews before it applies. There's a download button here to back the list up. |
-| **Results** | Type in a sheet number, or pick event + year + gender, then enter times down the list in the same order as the printed sheet. Placings rank themselves as you type, first three shaded. Handles `m:ss.s` for the 800m and 1500m. |
+| **Results** | Optional — full times for every competitor, for school records or district qualifying times. Type in a sheet number, or pick event + year + gender, then enter times down the list in the same order as the printed sheet. Placings rank themselves as you type. Handles `m:ss.s` for the 800m and 1500m. House points do **not** come from here. |
 | **Event sheets** | Printable recording sheets — see below. |
+| **Points** | Entering the hardcopy sheets as they come back — see below. |
 | **District** | The interesting one — see below. |
 
 ## Event sheets
@@ -59,10 +60,31 @@ populated, so **load the class list before printing sheets**.
 - **Download these sheets as CSV** / **Download all results as CSV** for anything you'd rather do
   in Excel.
 
+## Entering the sheets — the Points tab
+
+Built for one job: teachers hand in the paper, you work through the pile.
+
+Type a sheet number (or use **Next sheet →**) and you get that event and division. Enter **how many
+competed from each house** — a count, not a list of names, because the sheet has everyone in the
+division on it but absences and non-starters mean only the marshal knows who actually ran. Then pick
+**1st through 4th** from a dropdown of that division, in the same house-then-name order as the paper.
+
+Scoring is **1 point per competitor**, plus **4 / 3 / 2 / 1** for the first four places. Every sheet
+shows what it is worth per house before you move on, so it can be checked against the paper, and the
+scheme itself is editable at the bottom of the tab if the carnival changes it.
+
+**Checking every sheet is in.** The top of the tab tracks *n of 72 sheets entered* with a progress
+bar; **which ones?** lists every outstanding sheet by number and event, each with a button that
+jumps straight to it. When the last one lands it reads *all in ✓*.
+
+The placings you enter here also feed the district team, so a carnival run entirely on paper counts
+never needs a single time typed in.
+
 ## Picking the district team
 
 Every event and division sends its top finisher (configurable), but no student may run more than
-**two individual events**. Relays sit outside the cap.
+**two individual events**. Relays sit outside the cap. Placings come from the Points tab where they
+have been entered, and otherwise from times on the Results tab.
 
 When someone wins more than two, the tab flags them and asks which two they'll run. Every event
 they let go is offered to the next finisher — who may now be over the cap themselves, so it

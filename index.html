@@ -582,6 +582,62 @@ function buildSheetIndex(events, students) {
   };
 }
 
+/*
+ * House scoring. Everyone who competes earns their house a point, and the first
+ * four places earn extra on top. Defaults match the tally sheet the carnival
+ * already runs on; both are editable on the Points tab.
+ */
+const DEFAULT_SCORING = {
+  participation: 1,
+  places: [4, 3, 2, 1]
+};
+const blankEntry = () => ({
+  counts: {},
+  places: ['', '', '', ''],
+  received: false
+});
+
+/*
+ * What one hardcopy sheet is worth, per house.
+ *
+ * Participation is a typed count per house rather than a headcount off the class
+ * list: the sheet lists everyone in the division, but absences and non-starters
+ * mean only the marshal knows who actually competed.
+ */
+function tallyHousePoints(houses, students, sheetEntries, scoring) {
+  const byId = {};
+  students.forEach(s => {
+    byId[s.id] = s;
+  });
+  const tally = {};
+  houses.forEach(h => {
+    tally[h.id] = {
+      participants: 0,
+      participation: 0,
+      placing: 0,
+      total: 0
+    };
+  });
+  Object.keys(sheetEntries || {}).forEach(key => {
+    const entry = sheetEntries[key];
+    if (!entry) return;
+    Object.keys(entry.counts || {}).forEach(hid => {
+      const n = parseInt(entry.counts[hid], 10) || 0;
+      if (!tally[hid] || n <= 0) return;
+      tally[hid].participants += n;
+      tally[hid].participation += n * scoring.participation;
+    });
+    (entry.places || []).forEach((sid, i) => {
+      const st = sid && byId[sid];
+      if (st && tally[st.house]) tally[st.house].placing += scoring.places[i] || 0;
+    });
+  });
+  Object.keys(tally).forEach(hid => {
+    tally[hid].total = tally[hid].participation + tally[hid].placing;
+  });
+  return tally;
+}
+
 // Rank the results for one event+division. Returns [{studentId, raw, value, place}] best first.
 function rankFor(results, eventId, division, scoring, studentsById) {
   const rows = results.filter(r => r.eventId === eventId && studentsById[r.studentId] && divisionOf(studentsById[r.studentId]) === division).map(r => ({
@@ -605,7 +661,7 @@ function rankFor(results, eventId, division, scoring, studentsById) {
  * be over the cap themselves. We loop until nothing changes, recording each pass so
  * you can see how the spots cascaded.
  */
-function allocateDistrict(events, results, students, prefs, opts) {
+function allocateDistrict(events, results, students, prefs, opts, sheetEntries) {
   const maxPerStudent = opts.maxPerStudent;
   const spotsPerEvent = opts.spotsPerEvent;
   const studentsById = {};
@@ -613,7 +669,9 @@ function allocateDistrict(events, results, students, prefs, opts) {
     studentsById[s.id] = s;
   });
 
-  // Every event+division that actually has results.
+  // Every event+division with something to go on: placings entered off the
+  // hardcopy sheet, or failing that, times typed on the Results tab.
+  const entries = sheetEntries || {};
   const contests = [];
   events.forEach(ev => {
     const divisions = new Set();
@@ -621,11 +679,20 @@ function allocateDistrict(events, results, students, prefs, opts) {
       const st = studentsById[r.studentId];
       if (st) divisions.add(divisionOf(st));
     });
+    Object.keys(entries).forEach(k => {
+      const cut = k.indexOf('::');
+      if (k.slice(0, cut) === ev.id && (entries[k].places || []).some(Boolean)) divisions.add(k.slice(cut + 2));
+    });
     divisions.forEach(division => {
+      const entry = entries[divKey(ev.id, division)];
+      const placed = entry && (entry.places || []).map((sid, i) => sid && studentsById[sid] ? {
+        studentId: sid,
+        place: i + 1
+      } : null).filter(Boolean);
       contests.push({
         event: ev,
         division,
-        ranked: rankFor(results, ev.id, division, ev.scoring, studentsById)
+        ranked: placed && placed.length ? placed : rankFor(results, ev.id, division, ev.scoring, studentsById)
       });
     });
   });
@@ -847,8 +914,8 @@ function HousesTab({
   houses,
   setHouses,
   students,
-  events,
-  results
+  sheetEntries,
+  scoring
 }) {
   const [draft, setDraft] = useState({
     name: '',
@@ -866,34 +933,9 @@ function HousesTab({
       colour: '#7c3aed'
     });
   };
-
-  // 1st = 3pts, 2nd = 2, 3rd = 1, in every event+division.
-  const points = useMemo(() => {
-    const studentsById = {};
-    students.forEach(s => {
-      studentsById[s.id] = s;
-    });
-    const tally = {};
-    houses.forEach(h => {
-      tally[h.id] = 0;
-    });
-    events.forEach(ev => {
-      const divisions = new Set();
-      results.filter(r => r.eventId === ev.id).forEach(r => {
-        const st = studentsById[r.studentId];
-        if (st) divisions.add(divisionOf(st));
-      });
-      divisions.forEach(division => {
-        rankFor(results, ev.id, division, ev.scoring, studentsById).slice(0, 3).forEach(r => {
-          const st = studentsById[r.studentId];
-          const pts = [3, 2, 1][r.place - 1];
-          if (st && tally[st.house] !== undefined) tally[st.house] += pts;
-        });
-      });
-    });
-    return tally;
-  }, [houses, students, events, results]);
-  const leader = Math.max(1, ...houses.map(h => points[h.id] || 0));
+  const points = useMemo(() => tallyHousePoints(houses, students, sheetEntries, scoring), [houses, students, sheetEntries, scoring]);
+  const totalFor = id => (points[id] || {}).total || 0;
+  const leader = Math.max(1, ...houses.map(h => totalFor(h.id)));
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h2", null, "Houses"), /*#__PURE__*/React.createElement("div", {
     className: "grid",
     style: {
@@ -922,7 +964,7 @@ function HousesTab({
       fontWeight: 800,
       marginTop: 8
     }
-  }, points[h.id] || 0), /*#__PURE__*/React.createElement("div", {
+  }, totalFor(h.id)), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 11,
       opacity: .9,
@@ -931,10 +973,15 @@ function HousesTab({
     }
   }, "points")))), /*#__PURE__*/React.createElement("div", {
     className: "card"
-  }, /*#__PURE__*/React.createElement("h3", null, "House points (3 / 2 / 1 for first three places in every event and division)"), houses.slice().sort((a, b) => (points[b.id] || 0) - (points[a.id] || 0)).map(h => /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("h3", null, "Overall tally"), /*#__PURE__*/React.createElement("p", {
+    className: "muted",
+    style: {
+      marginTop: 0
+    }
+  }, scoring.participation, " point per competitor, plus ", scoring.places.join(' / '), " for 1st / 2nd / 3rd / 4th. Everything here comes off the sheets entered on the Points tab."), houses.slice().sort((a, b) => totalFor(b.id) - totalFor(a.id)).map(h => /*#__PURE__*/React.createElement("div", {
     key: h.id,
     style: {
-      marginBottom: 10
+      marginBottom: 12
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
@@ -943,7 +990,13 @@ function HousesTab({
       fontSize: 13,
       marginBottom: 3
     }
-  }, /*#__PURE__*/React.createElement("strong", null, h.name), /*#__PURE__*/React.createElement("span", null, points[h.id] || 0)), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("strong", null, h.name), /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, (points[h.id] || {}).participation || 0, " participation + ", (points[h.id] || {}).placing || 0, " placings", ' ', "= ", /*#__PURE__*/React.createElement("strong", {
+    style: {
+      color: '#1a2027'
+    }
+  }, totalFor(h.id)))), /*#__PURE__*/React.createElement("div", {
     style: {
       background: '#eef1f4',
       borderRadius: 999,
@@ -952,11 +1005,17 @@ function HousesTab({
   }, /*#__PURE__*/React.createElement("div", {
     style: {
       background: h.colour,
-      width: (points[h.id] || 0) / leader * 100 + '%',
+      width: totalFor(h.id) / leader * 100 + '%',
       height: 10,
       borderRadius: 999
     }
-  }))))), /*#__PURE__*/React.createElement("div", {
+  })))), /*#__PURE__*/React.createElement("table", {
+    style: {
+      marginTop: 16
+    }
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "House"), /*#__PURE__*/React.createElement("th", null, "Competitors"), /*#__PURE__*/React.createElement("th", null, "Participation"), /*#__PURE__*/React.createElement("th", null, "Placings"), /*#__PURE__*/React.createElement("th", null, "Total"))), /*#__PURE__*/React.createElement("tbody", null, houses.slice().sort((a, b) => totalFor(b.id) - totalFor(a.id)).map(h => /*#__PURE__*/React.createElement("tr", {
+    key: h.id
+  }, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("strong", null, h.name)), /*#__PURE__*/React.createElement("td", null, (points[h.id] || {}).participants || 0), /*#__PURE__*/React.createElement("td", null, (points[h.id] || {}).participation || 0), /*#__PURE__*/React.createElement("td", null, (points[h.id] || {}).placing || 0), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("strong", null, totalFor(h.id)))))))), /*#__PURE__*/React.createElement("div", {
     className: "card"
   }, /*#__PURE__*/React.createElement("h3", null, "Add a house"), /*#__PURE__*/React.createElement("div", {
     className: "row"
@@ -1724,7 +1783,8 @@ function DistrictTab({
   prefs,
   setPrefs,
   settings,
-  setSettings
+  setSettings,
+  sheetEntries
 }) {
   const [expanded, setExpanded] = useState(null);
   const studentsById = useMemo(() => {
@@ -1734,7 +1794,7 @@ function DistrictTab({
     });
     return m;
   }, [students]);
-  const alloc = useMemo(() => allocateDistrict(events, results, students, prefs, settings), [events, results, students, prefs, settings]);
+  const alloc = useMemo(() => allocateDistrict(events, results, students, prefs, settings, sheetEntries), [events, results, students, prefs, settings, sheetEntries]);
   const eventName = id => (events.find(e => e.id === id) || {}).name || '?';
   const nameOf = id => (studentsById[id] || {}).name || 'Unknown';
   const setChosen = (studentId, eventId, on) => {
@@ -2127,6 +2187,321 @@ function SheetsTab({
     }, houseName(s.house)), /*#__PURE__*/React.createElement("td", null, withResults && hit ? hit.result : ''), /*#__PURE__*/React.createElement("td", null, withResults && hit ? hit.place : ''));
   }))))));
 }
+function PointsTab({
+  events,
+  students,
+  houses,
+  sheetEntries,
+  setSheetEntries,
+  scoring,
+  setScoring
+}) {
+  const [sheetNo, setSheetNo] = useState('1');
+  const [showOutstanding, setShowOutstanding] = useState(false);
+  const sheetIndex = useMemo(() => buildSheetIndex(events, students), [events, students]);
+  const num = parseInt(sheetNo, 10);
+  const target = sheetIndex.byNumber[num];
+  const key = target ? divKey(target.eventId, target.year + ' ' + target.gender) : null;
+  const entry = key && sheetEntries[key] || blankEntry();
+  const houseName = id => (houses.find(h => h.id === id) || {}).name || '';
+  const roll = useMemo(() => {
+    if (!target) return [];
+    return students.filter(s => s.yearLevel === target.year && (s.gender || 'Mixed') === target.gender).sort((a, b) => (houseName(a.house) + a.name).localeCompare(houseName(b.house) + b.name));
+  }, [students, target, houses]);
+
+  // Any edit means the paper is in hand, so it counts as received unless said otherwise.
+  const write = changes => {
+    if (!key) return;
+    setSheetEntries({
+      ...sheetEntries,
+      [key]: {
+        ...entry,
+        received: true,
+        ...changes
+      }
+    });
+  };
+  const setCount = (houseId, value) => write({
+    counts: {
+      ...entry.counts,
+      [houseId]: value
+    }
+  });
+  const setPlace = (i, studentId) => {
+    const places = entry.places.slice();
+    places[i] = studentId;
+    write({
+      places
+    });
+  };
+  const fillFromRoll = () => {
+    const counts = {};
+    houses.forEach(h => {
+      counts[h.id] = roll.filter(s => s.house === h.id).length;
+    });
+    write({
+      counts
+    });
+  };
+  const clearSheet = () => {
+    if (!key || !confirm('Clear everything entered for sheet ' + num + '?')) return;
+    const next = {
+      ...sheetEntries
+    };
+    delete next[key];
+    setSheetEntries(next);
+  };
+  const received = Object.keys(sheetEntries).filter(k => sheetEntries[k] && sheetEntries[k].received);
+  const outstanding = [];
+  for (let i = 1; i <= sheetIndex.total; i++) {
+    const t = sheetIndex.byNumber[i];
+    const k = divKey(t.eventId, t.year + ' ' + t.gender);
+    if (!sheetEntries[k] || !sheetEntries[k].received) {
+      outstanding.push({
+        no: i,
+        label: t.event.name + ' — Year ' + t.year + ' ' + t.gender
+      });
+    }
+  }
+
+  // What this one sheet is worth, so it can be checked against the paper.
+  const thisSheet = useMemo(() => tallyHousePoints(houses, students, key ? {
+    [key]: entry
+  } : {}, scoring), [houses, students, key, entry, scoring]);
+  const chosen = entry.places.filter(Boolean);
+  const duplicate = chosen.length !== new Set(chosen).size;
+  const step = by => {
+    const next = Math.min(sheetIndex.total, Math.max(1, (num || 0) + by));
+    setSheetNo(String(next));
+  };
+  if (sheetIndex.total === 0) {
+    return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h2", null, "Points"), /*#__PURE__*/React.createElement("p", {
+      className: "muted"
+    }, "Load the class list on the Import tab first \u2014 sheets are numbered from it."));
+  }
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h2", null, "Points"), /*#__PURE__*/React.createElement("div", {
+    className: "card"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "row",
+    style: {
+      alignItems: 'center'
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: '0 0 auto',
+      fontSize: 15
+    }
+  }, /*#__PURE__*/React.createElement("strong", null, received.length), " of ", sheetIndex.total, " sheets entered", outstanding.length > 0 ? /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, " \xB7 ", outstanding.length, " still out") : /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: '#15803d',
+      fontWeight: 600
+    }
+  }, " \xB7 all in \u2713")), outstanding.length > 0 && /*#__PURE__*/React.createElement("button", {
+    className: "btn-ghost btn-sm",
+    style: {
+      flex: '0 0 auto'
+    },
+    onClick: () => setShowOutstanding(!showOutstanding)
+  }, showOutstanding ? 'hide' : 'which ones?')), /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: '#eef1f4',
+      borderRadius: 999,
+      height: 10,
+      marginTop: 10
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: '#2563eb',
+      height: 10,
+      borderRadius: 999,
+      width: received.length / sheetIndex.total * 100 + '%'
+    }
+  })), showOutstanding && /*#__PURE__*/React.createElement("div", {
+    className: "scroll",
+    style: {
+      marginTop: 12
+    }
+  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    style: {
+      width: 70
+    }
+  }, "Sheet"), /*#__PURE__*/React.createElement("th", null, "Event and division"), /*#__PURE__*/React.createElement("th", {
+    style: {
+      width: 80
+    }
+  }))), /*#__PURE__*/React.createElement("tbody", null, outstanding.map(o => /*#__PURE__*/React.createElement("tr", {
+    key: o.no
+  }, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("strong", null, o.no)), /*#__PURE__*/React.createElement("td", null, o.label), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("button", {
+    className: "btn-ghost btn-sm",
+    onClick: () => {
+      setSheetNo(String(o.no));
+      setShowOutstanding(false);
+    }
+  }, "Enter")))))))), /*#__PURE__*/React.createElement("div", {
+    className: "card"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "row",
+    style: {
+      alignItems: 'flex-end'
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    className: "fld",
+    style: {
+      flex: '0 0 130px'
+    }
+  }, "Sheet number", /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    min: "1",
+    max: sheetIndex.total,
+    value: sheetNo,
+    onChange: e => setSheetNo(e.target.value)
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: '1 1 240px',
+      paddingBottom: 10
+    }
+  }, target ? /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 16
+    }
+  }, /*#__PURE__*/React.createElement("strong", null, target.event.name), " \u2014 Year ", target.year, " ", target.gender, entry.received && /*#__PURE__*/React.createElement("span", {
+    className: "pill",
+    style: {
+      background: '#dcfce7',
+      marginLeft: 8
+    }
+  }, "entered")) : /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: '#b45309'
+    }
+  }, "No sheet ", sheetNo, ". They run 1 to ", sheetIndex.total, ".")), /*#__PURE__*/React.createElement("button", {
+    className: "btn-ghost",
+    style: {
+      flex: '0 0 auto'
+    },
+    onClick: () => step(-1)
+  }, "\u2190 Previous"), /*#__PURE__*/React.createElement("button", {
+    className: "btn",
+    style: {
+      flex: '0 0 auto'
+    },
+    onClick: () => step(1)
+  }, "Next sheet \u2192"))), target && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "card"
+  }, /*#__PURE__*/React.createElement("h3", null, "How many competed, per house"), /*#__PURE__*/React.createElement("p", {
+    className: "muted",
+    style: {
+      marginTop: 0
+    }
+  }, "One point each. Count them off the sheet \u2014 the class list has ", roll.length, " in this division, but only those who actually competed score."), /*#__PURE__*/React.createElement("div", {
+    className: "row"
+  }, houses.map(h => /*#__PURE__*/React.createElement("label", {
+    className: "fld",
+    key: h.id
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: 'inline-block',
+      width: 10,
+      height: 10,
+      borderRadius: 3,
+      background: h.colour,
+      marginRight: 6
+    }
+  }), h.name, /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    min: "0",
+    value: entry.counts[h.id] === undefined ? '' : entry.counts[h.id],
+    placeholder: "0",
+    onChange: e => setCount(h.id, e.target.value)
+  }))), /*#__PURE__*/React.createElement("button", {
+    className: "btn-ghost",
+    style: {
+      flex: '0 0 auto'
+    },
+    onClick: fillFromRoll
+  }, "Fill from class list"))), /*#__PURE__*/React.createElement("div", {
+    className: "card"
+  }, /*#__PURE__*/React.createElement("h3", null, "Placings"), /*#__PURE__*/React.createElement("p", {
+    className: "muted",
+    style: {
+      marginTop: 0
+    }
+  }, scoring.places.map((p, i) => ['1st', '2nd', '3rd', '4th'][i] + ' = ' + p).join(', '), " points, on top of the participation point."), duplicate && /*#__PURE__*/React.createElement("div", {
+    className: "warn"
+  }, "The same student is down for more than one place."), /*#__PURE__*/React.createElement("div", {
+    className: "row"
+  }, ['1st', '2nd', '3rd', '4th'].map((label, i) => /*#__PURE__*/React.createElement("label", {
+    className: "fld",
+    key: label
+  }, label, " ", /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, "(", scoring.places[i], " pts)"), /*#__PURE__*/React.createElement("select", {
+    value: entry.places[i] || '',
+    onChange: e => setPlace(i, e.target.value)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "\u2014"), roll.map(s => /*#__PURE__*/React.createElement("option", {
+    key: s.id,
+    value: s.id
+  }, s.name, " \xB7 ", houseName(s.house)))))))), /*#__PURE__*/React.createElement("div", {
+    className: "card"
+  }, /*#__PURE__*/React.createElement("h3", null, "What sheet ", num, " adds to the tally"), /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "House"), /*#__PURE__*/React.createElement("th", null, "Competed"), /*#__PURE__*/React.createElement("th", null, "Participation"), /*#__PURE__*/React.createElement("th", null, "Placings"), /*#__PURE__*/React.createElement("th", null, "Total"))), /*#__PURE__*/React.createElement("tbody", null, houses.map(h => /*#__PURE__*/React.createElement("tr", {
+    key: h.id
+  }, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("strong", null, h.name)), /*#__PURE__*/React.createElement("td", null, thisSheet[h.id].participants), /*#__PURE__*/React.createElement("td", null, thisSheet[h.id].participation), /*#__PURE__*/React.createElement("td", null, thisSheet[h.id].placing), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("strong", null, thisSheet[h.id].total)))))), /*#__PURE__*/React.createElement("div", {
+    className: "row",
+    style: {
+      marginTop: 14
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    style: {
+      flex: '1 1 auto',
+      fontSize: 14
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: !!entry.received,
+    onChange: e => write({
+      received: e.target.checked
+    })
+  }), ' ', "Sheet handed in"), /*#__PURE__*/React.createElement("button", {
+    className: "btn-ghost btn-sm",
+    style: {
+      flex: '0 0 auto'
+    },
+    onClick: clearSheet
+  }, "Clear this sheet")))), /*#__PURE__*/React.createElement("div", {
+    className: "card"
+  }, /*#__PURE__*/React.createElement("h3", null, "Points scheme"), /*#__PURE__*/React.createElement("div", {
+    className: "row"
+  }, /*#__PURE__*/React.createElement("label", {
+    className: "fld"
+  }, "Per competitor", /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    min: "0",
+    value: scoring.participation,
+    onChange: e => setScoring({
+      ...scoring,
+      participation: parseInt(e.target.value, 10) || 0
+    })
+  })), ['1st', '2nd', '3rd', '4th'].map((label, i) => /*#__PURE__*/React.createElement("label", {
+    className: "fld",
+    key: label
+  }, label, /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    min: "0",
+    value: scoring.places[i],
+    onChange: e => {
+      const places = scoring.places.slice();
+      places[i] = parseInt(e.target.value, 10) || 0;
+      setScoring({
+        ...scoring,
+        places
+      });
+    }
+  }))))));
+}
 
 /* ---------------------------------------------------------------- shell */
 
@@ -2141,6 +2516,8 @@ function App() {
     maxPerStudent: 2,
     spotsPerEvent: 1
   }));
+  const [sheetEntries, setSheetEntries] = useState(() => load('ath_sheets', {}));
+  const [scoring, setScoring] = useState(() => load('ath_scoring', DEFAULT_SCORING));
   useEffect(() => {
     store.setItem('ath_houses', JSON.stringify(houses));
   }, [houses]);
@@ -2159,7 +2536,13 @@ function App() {
   useEffect(() => {
     store.setItem('ath_settings', JSON.stringify(settings));
   }, [settings]);
-  const TABS = [['events', 'Events'], ['houses', 'Houses'], ['students', 'Students'], ['import', 'Import'], ['results', 'Results'], ['sheets', 'Event sheets'], ['district', 'District']];
+  useEffect(() => {
+    store.setItem('ath_sheets', JSON.stringify(sheetEntries));
+  }, [sheetEntries]);
+  useEffect(() => {
+    store.setItem('ath_scoring', JSON.stringify(scoring));
+  }, [scoring]);
+  const TABS = [['events', 'Events'], ['houses', 'Houses'], ['students', 'Students'], ['import', 'Import'], ['sheets', 'Event sheets'], ['points', 'Points'], ['results', 'Results'], ['district', 'District']];
   return /*#__PURE__*/React.createElement("div", {
     className: "wrap"
   }, /*#__PURE__*/React.createElement("div", {
@@ -2170,7 +2553,7 @@ function App() {
     className: "btn-ghost noprint",
     onClick: () => {
       if (confirm('Erase every event, student and result stored in this browser?')) {
-        ['ath_houses', 'ath_events', 'ath_students', 'ath_results', 'ath_prefs', 'ath_settings'].forEach(k => store.removeItem(k));
+        ['ath_houses', 'ath_events', 'ath_students', 'ath_results', 'ath_prefs', 'ath_settings', 'ath_sheets', 'ath_scoring'].forEach(k => store.removeItem(k));
         location.reload();
       }
     }
@@ -2187,8 +2570,8 @@ function App() {
     houses: houses,
     setHouses: setHouses,
     students: students,
-    events: events,
-    results: results
+    sheetEntries: sheetEntries,
+    scoring: scoring
   }), tab === 'students' && /*#__PURE__*/React.createElement(StudentsTab, {
     students: students,
     setStudents: setStudents,
@@ -2209,6 +2592,14 @@ function App() {
     students: students,
     results: results,
     houses: houses
+  }), tab === 'points' && /*#__PURE__*/React.createElement(PointsTab, {
+    events: events,
+    students: students,
+    houses: houses,
+    sheetEntries: sheetEntries,
+    setSheetEntries: setSheetEntries,
+    scoring: scoring,
+    setScoring: setScoring
   }), tab === 'district' && /*#__PURE__*/React.createElement(DistrictTab, {
     events: events,
     students: students,
@@ -2216,7 +2607,8 @@ function App() {
     prefs: prefs,
     setPrefs: setPrefs,
     settings: settings,
-    setSettings: setSettings
+    setSettings: setSettings,
+    sheetEntries: sheetEntries
   }));
 }
 ReactDOM.createRoot(document.getElementById('root')).render(/*#__PURE__*/React.createElement(App, null));
