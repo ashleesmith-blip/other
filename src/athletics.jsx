@@ -94,50 +94,6 @@ function buildSheetIndex(events, students) {
   return { byKey, byNumber, total: n };
 }
 
-/*
- * House scoring. Everyone who competes earns their house a point, and the first
- * four places earn extra on top. Defaults match the tally sheet the carnival
- * already runs on; both are editable on the Points tab.
- */
-const DEFAULT_SCORING = { participation: 1, places: [4, 3, 2, 1] };
-
-const blankEntry = () => ({ counts: {}, places: ['', '', '', ''], received: false });
-
-/*
- * What one hardcopy sheet is worth, per house.
- *
- * Participation is a typed count per house rather than a headcount off the class
- * list: the sheet lists everyone in the division, but absences and non-starters
- * mean only the marshal knows who actually competed.
- */
-function tallyHousePoints(houses, students, sheetEntries, scoring) {
-  const byId = {};
-  students.forEach(s => { byId[s.id] = s; });
-
-  const tally = {};
-  houses.forEach(h => { tally[h.id] = { participants: 0, participation: 0, placing: 0, total: 0 }; });
-
-  Object.keys(sheetEntries || {}).forEach(key => {
-    const entry = sheetEntries[key];
-    if (!entry) return;
-    Object.keys(entry.counts || {}).forEach(hid => {
-      const n = parseInt(entry.counts[hid], 10) || 0;
-      if (!tally[hid] || n <= 0) return;
-      tally[hid].participants += n;
-      tally[hid].participation += n * scoring.participation;
-    });
-    (entry.places || []).forEach((sid, i) => {
-      const st = sid && byId[sid];
-      if (st && tally[st.house]) tally[st.house].placing += scoring.places[i] || 0;
-    });
-  });
-
-  Object.keys(tally).forEach(hid => {
-    tally[hid].total = tally[hid].participation + tally[hid].placing;
-  });
-  return tally;
-}
-
 // Rank the results for one event+division. Returns [{studentId, raw, value, place}] best first.
 function rankFor(results, eventId, division, scoring, studentsById) {
   const rows = results
@@ -158,15 +114,13 @@ function rankFor(results, eventId, division, scoring, studentsById) {
  * be over the cap themselves. We loop until nothing changes, recording each pass so
  * you can see how the spots cascaded.
  */
-function allocateDistrict(events, results, students, prefs, opts, sheetEntries) {
+function allocateDistrict(events, results, students, prefs, opts) {
   const maxPerStudent = opts.maxPerStudent;
   const spotsPerEvent = opts.spotsPerEvent;
   const studentsById = {};
   students.forEach(s => { studentsById[s.id] = s; });
 
-  // Every event+division with something to go on: placings entered off the
-  // hardcopy sheet, or failing that, times typed on the Results tab.
-  const entries = sheetEntries || {};
+  // Every event+division that actually has results.
   const contests = [];
   events.forEach(ev => {
     const divisions = new Set();
@@ -174,19 +128,11 @@ function allocateDistrict(events, results, students, prefs, opts, sheetEntries) 
       const st = studentsById[r.studentId];
       if (st) divisions.add(divisionOf(st));
     });
-    Object.keys(entries).forEach(k => {
-      const cut = k.indexOf('::');
-      if (k.slice(0, cut) === ev.id && (entries[k].places || []).some(Boolean)) divisions.add(k.slice(cut + 2));
-    });
     divisions.forEach(division => {
-      const entry = entries[divKey(ev.id, division)];
-      const placed = entry && (entry.places || [])
-        .map((sid, i) => (sid && studentsById[sid]) ? { studentId: sid, place: i + 1 } : null)
-        .filter(Boolean);
       contests.push({
         event: ev,
         division,
-        ranked: (placed && placed.length) ? placed : rankFor(results, ev.id, division, ev.scoring, studentsById),
+        ranked: rankFor(results, ev.id, division, ev.scoring, studentsById),
       });
     });
   });
@@ -344,7 +290,7 @@ function EventsTab({ events, setEvents }) {
   );
 }
 
-function HousesTab({ houses, setHouses, students, sheetEntries, scoring }) {
+function HousesTab({ houses, setHouses, students, events, results }) {
   const [draft, setDraft] = useState({ name: '', colour: '#7c3aed' });
 
   const add = () => {
@@ -353,13 +299,30 @@ function HousesTab({ houses, setHouses, students, sheetEntries, scoring }) {
     setDraft({ name: '', colour: '#7c3aed' });
   };
 
-  const points = useMemo(
-    () => tallyHousePoints(houses, students, sheetEntries, scoring),
-    [houses, students, sheetEntries, scoring]
-  );
-  const totalFor = (id) => (points[id] || {}).total || 0;
+  // 1st = 3pts, 2nd = 2, 3rd = 1, in every event+division.
+  const points = useMemo(() => {
+    const studentsById = {};
+    students.forEach(s => { studentsById[s.id] = s; });
+    const tally = {};
+    houses.forEach(h => { tally[h.id] = 0; });
+    events.forEach(ev => {
+      const divisions = new Set();
+      results.filter(r => r.eventId === ev.id).forEach(r => {
+        const st = studentsById[r.studentId];
+        if (st) divisions.add(divisionOf(st));
+      });
+      divisions.forEach(division => {
+        rankFor(results, ev.id, division, ev.scoring, studentsById).slice(0, 3).forEach(r => {
+          const st = studentsById[r.studentId];
+          const pts = [3, 2, 1][r.place - 1];
+          if (st && tally[st.house] !== undefined) tally[st.house] += pts;
+        });
+      });
+    });
+    return tally;
+  }, [houses, students, events, results]);
 
-  const leader = Math.max(1, ...houses.map(h => totalFor(h.id)));
+  const leader = Math.max(1, ...houses.map(h => points[h.id] || 0));
 
   return (
     <div>
@@ -371,46 +334,24 @@ function HousesTab({ houses, setHouses, students, sheetEntries, scoring }) {
             <div style={{ fontSize: 13, marginTop: 6, opacity: .95 }}>
               {students.filter(s => s.house === h.id).length} students
             </div>
-            <div style={{ fontSize: 26, fontWeight: 800, marginTop: 8 }}>{totalFor(h.id)}</div>
+            <div style={{ fontSize: 26, fontWeight: 800, marginTop: 8 }}>{points[h.id] || 0}</div>
             <div style={{ fontSize: 11, opacity: .9, textTransform: 'uppercase', letterSpacing: '.06em' }}>points</div>
           </div>
         ))}
       </div>
 
       <div className="card">
-        <h3>Overall tally</h3>
-        <p className="muted" style={{ marginTop: 0 }}>
-          {scoring.participation} point per competitor, plus {scoring.places.join(' / ')} for
-          1st / 2nd / 3rd / 4th. Everything here comes off the sheets entered on the Points tab.
-        </p>
-        {houses.slice().sort((a, b) => totalFor(b.id) - totalFor(a.id)).map(h => (
-          <div key={h.id} style={{ marginBottom: 12 }}>
+        <h3>House points (3 / 2 / 1 for first three places in every event and division)</h3>
+        {houses.slice().sort((a, b) => (points[b.id] || 0) - (points[a.id] || 0)).map(h => (
+          <div key={h.id} style={{ marginBottom: 10 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 3 }}>
-              <strong>{h.name}</strong>
-              <span className="muted">
-                {(points[h.id] || {}).participation || 0} participation + {(points[h.id] || {}).placing || 0} placings
-                {' '}= <strong style={{ color: '#1a2027' }}>{totalFor(h.id)}</strong>
-              </span>
+              <strong>{h.name}</strong><span>{points[h.id] || 0}</span>
             </div>
             <div style={{ background: '#eef1f4', borderRadius: 999, height: 10 }}>
-              <div style={{ background: h.colour, width: (totalFor(h.id) / leader * 100) + '%', height: 10, borderRadius: 999 }} />
+              <div style={{ background: h.colour, width: ((points[h.id] || 0) / leader * 100) + '%', height: 10, borderRadius: 999 }} />
             </div>
           </div>
         ))}
-        <table style={{ marginTop: 16 }}>
-          <thead><tr><th>House</th><th>Competitors</th><th>Participation</th><th>Placings</th><th>Total</th></tr></thead>
-          <tbody>
-            {houses.slice().sort((a, b) => totalFor(b.id) - totalFor(a.id)).map(h => (
-              <tr key={h.id}>
-                <td><strong>{h.name}</strong></td>
-                <td>{(points[h.id] || {}).participants || 0}</td>
-                <td>{(points[h.id] || {}).participation || 0}</td>
-                <td>{(points[h.id] || {}).placing || 0}</td>
-                <td><strong>{totalFor(h.id)}</strong></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
       </div>
 
       <div className="card">
@@ -971,15 +912,15 @@ function ResultsTab({ events, students, results, setResults, houses }) {
   );
 }
 
-function DistrictTab({ events, students, results, prefs, setPrefs, settings, setSettings, sheetEntries }) {
+function DistrictTab({ events, students, results, prefs, setPrefs, settings, setSettings }) {
   const [expanded, setExpanded] = useState(null);
   const studentsById = useMemo(() => {
     const m = {}; students.forEach(s => { m[s.id] = s; }); return m;
   }, [students]);
 
   const alloc = useMemo(
-    () => allocateDistrict(events, results, students, prefs, settings, sheetEntries),
-    [events, results, students, prefs, settings, sheetEntries]
+    () => allocateDistrict(events, results, students, prefs, settings),
+    [events, results, students, prefs, settings]
   );
 
   const eventName = (id) => (events.find(e => e.id === id) || {}).name || '?';
@@ -1353,236 +1294,6 @@ function SheetsTab({ events, students, results, houses }) {
   );
 }
 
-function PointsTab({ events, students, houses, sheetEntries, setSheetEntries, scoring, setScoring }) {
-  const [sheetNo, setSheetNo] = useState('1');
-  const [showOutstanding, setShowOutstanding] = useState(false);
-
-  const sheetIndex = useMemo(() => buildSheetIndex(events, students), [events, students]);
-  const num = parseInt(sheetNo, 10);
-  const target = sheetIndex.byNumber[num];
-  const key = target ? divKey(target.eventId, target.year + ' ' + target.gender) : null;
-  const entry = (key && sheetEntries[key]) || blankEntry();
-  const houseName = (id) => (houses.find(h => h.id === id) || {}).name || '';
-
-  const roll = useMemo(() => {
-    if (!target) return [];
-    return students
-      .filter(s => s.yearLevel === target.year && (s.gender || 'Mixed') === target.gender)
-      .sort((a, b) => (houseName(a.house) + a.name).localeCompare(houseName(b.house) + b.name));
-  }, [students, target, houses]);
-
-  // Any edit means the paper is in hand, so it counts as received unless said otherwise.
-  const write = (changes) => {
-    if (!key) return;
-    setSheetEntries({ ...sheetEntries, [key]: { ...entry, received: true, ...changes } });
-  };
-  const setCount = (houseId, value) => write({ counts: { ...entry.counts, [houseId]: value } });
-  const setPlace = (i, studentId) => {
-    const places = entry.places.slice();
-    places[i] = studentId;
-    write({ places });
-  };
-
-  const fillFromRoll = () => {
-    const counts = {};
-    houses.forEach(h => { counts[h.id] = roll.filter(s => s.house === h.id).length; });
-    write({ counts });
-  };
-
-  const clearSheet = () => {
-    if (!key || !confirm('Clear everything entered for sheet ' + num + '?')) return;
-    const next = { ...sheetEntries };
-    delete next[key];
-    setSheetEntries(next);
-  };
-
-  const received = Object.keys(sheetEntries).filter(k => sheetEntries[k] && sheetEntries[k].received);
-  const outstanding = [];
-  for (let i = 1; i <= sheetIndex.total; i++) {
-    const t = sheetIndex.byNumber[i];
-    const k = divKey(t.eventId, t.year + ' ' + t.gender);
-    if (!sheetEntries[k] || !sheetEntries[k].received) {
-      outstanding.push({ no: i, label: t.event.name + ' — Year ' + t.year + ' ' + t.gender });
-    }
-  }
-
-  // What this one sheet is worth, so it can be checked against the paper.
-  const thisSheet = useMemo(
-    () => tallyHousePoints(houses, students, key ? { [key]: entry } : {}, scoring),
-    [houses, students, key, entry, scoring]
-  );
-
-  const chosen = entry.places.filter(Boolean);
-  const duplicate = chosen.length !== new Set(chosen).size;
-  const step = (by) => {
-    const next = Math.min(sheetIndex.total, Math.max(1, (num || 0) + by));
-    setSheetNo(String(next));
-  };
-
-  if (sheetIndex.total === 0) {
-    return (
-      <div>
-        <h2>Points</h2>
-        <p className="muted">Load the class list on the Import tab first — sheets are numbered from it.</p>
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      <h2>Points</h2>
-
-      <div className="card">
-        <div className="row" style={{ alignItems: 'center' }}>
-          <div style={{ flex: '0 0 auto', fontSize: 15 }}>
-            <strong>{received.length}</strong> of {sheetIndex.total} sheets entered
-            {outstanding.length > 0
-              ? <span className="muted"> · {outstanding.length} still out</span>
-              : <span style={{ color: '#15803d', fontWeight: 600 }}> · all in ✓</span>}
-          </div>
-          {outstanding.length > 0 && (
-            <button className="btn-ghost btn-sm" style={{ flex: '0 0 auto' }}
-              onClick={() => setShowOutstanding(!showOutstanding)}>
-              {showOutstanding ? 'hide' : 'which ones?'}
-            </button>
-          )}
-        </div>
-        <div style={{ background: '#eef1f4', borderRadius: 999, height: 10, marginTop: 10 }}>
-          <div style={{ background: '#2563eb', height: 10, borderRadius: 999,
-            width: (received.length / sheetIndex.total * 100) + '%' }} />
-        </div>
-        {showOutstanding && (
-          <div className="scroll" style={{ marginTop: 12 }}>
-            <table>
-              <thead><tr><th style={{ width: 70 }}>Sheet</th><th>Event and division</th><th style={{ width: 80 }}></th></tr></thead>
-              <tbody>
-                {outstanding.map(o => (
-                  <tr key={o.no}>
-                    <td><strong>{o.no}</strong></td>
-                    <td>{o.label}</td>
-                    <td><button className="btn-ghost btn-sm" onClick={() => { setSheetNo(String(o.no)); setShowOutstanding(false); }}>Enter</button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      <div className="card">
-        <div className="row" style={{ alignItems: 'flex-end' }}>
-          <label className="fld" style={{ flex: '0 0 130px' }}>Sheet number
-            <input type="number" min="1" max={sheetIndex.total} value={sheetNo}
-              onChange={e => setSheetNo(e.target.value)} />
-          </label>
-          <div style={{ flex: '1 1 240px', paddingBottom: 10 }}>
-            {target
-              ? <span style={{ fontSize: 16 }}>
-                  <strong>{target.event.name}</strong> — Year {target.year} {target.gender}
-                  {entry.received && <span className="pill" style={{ background: '#dcfce7', marginLeft: 8 }}>entered</span>}
-                </span>
-              : <span style={{ color: '#b45309' }}>No sheet {sheetNo}. They run 1 to {sheetIndex.total}.</span>}
-          </div>
-          <button className="btn-ghost" style={{ flex: '0 0 auto' }} onClick={() => step(-1)}>← Previous</button>
-          <button className="btn" style={{ flex: '0 0 auto' }} onClick={() => step(1)}>Next sheet →</button>
-        </div>
-      </div>
-
-      {target && (
-        <>
-          <div className="card">
-            <h3>How many competed, per house</h3>
-            <p className="muted" style={{ marginTop: 0 }}>
-              One point each. Count them off the sheet — the class list has {roll.length} in this
-              division, but only those who actually competed score.
-            </p>
-            <div className="row">
-              {houses.map(h => (
-                <label className="fld" key={h.id}>
-                  <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 3, background: h.colour, marginRight: 6 }} />
-                  {h.name}
-                  <input type="number" min="0" value={entry.counts[h.id] === undefined ? '' : entry.counts[h.id]}
-                    placeholder="0" onChange={e => setCount(h.id, e.target.value)} />
-                </label>
-              ))}
-              <button className="btn-ghost" style={{ flex: '0 0 auto' }} onClick={fillFromRoll}>
-                Fill from class list
-              </button>
-            </div>
-          </div>
-
-          <div className="card">
-            <h3>Placings</h3>
-            <p className="muted" style={{ marginTop: 0 }}>
-              {scoring.places.map((p, i) => ['1st', '2nd', '3rd', '4th'][i] + ' = ' + p).join(', ')} points,
-              on top of the participation point.
-            </p>
-            {duplicate && <div className="warn">The same student is down for more than one place.</div>}
-            <div className="row">
-              {['1st', '2nd', '3rd', '4th'].map((label, i) => (
-                <label className="fld" key={label}>{label} <span className="muted">({scoring.places[i]} pts)</span>
-                  <select value={entry.places[i] || ''} onChange={e => setPlace(i, e.target.value)}>
-                    <option value="">—</option>
-                    {roll.map(s => (
-                      <option key={s.id} value={s.id}>{s.name} · {houseName(s.house)}</option>
-                    ))}
-                  </select>
-                </label>
-              ))}
-            </div>
-          </div>
-
-          <div className="card">
-            <h3>What sheet {num} adds to the tally</h3>
-            <table>
-              <thead><tr><th>House</th><th>Competed</th><th>Participation</th><th>Placings</th><th>Total</th></tr></thead>
-              <tbody>
-                {houses.map(h => (
-                  <tr key={h.id}>
-                    <td><strong>{h.name}</strong></td>
-                    <td>{thisSheet[h.id].participants}</td>
-                    <td>{thisSheet[h.id].participation}</td>
-                    <td>{thisSheet[h.id].placing}</td>
-                    <td><strong>{thisSheet[h.id].total}</strong></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <div className="row" style={{ marginTop: 14 }}>
-              <label style={{ flex: '1 1 auto', fontSize: 14 }}>
-                <input type="checkbox" checked={!!entry.received}
-                  onChange={e => write({ received: e.target.checked })} />
-                {' '}Sheet handed in
-              </label>
-              <button className="btn-ghost btn-sm" style={{ flex: '0 0 auto' }} onClick={clearSheet}>Clear this sheet</button>
-            </div>
-          </div>
-        </>
-      )}
-
-      <div className="card">
-        <h3>Points scheme</h3>
-        <div className="row">
-          <label className="fld">Per competitor
-            <input type="number" min="0" value={scoring.participation}
-              onChange={e => setScoring({ ...scoring, participation: parseInt(e.target.value, 10) || 0 })} />
-          </label>
-          {['1st', '2nd', '3rd', '4th'].map((label, i) => (
-            <label className="fld" key={label}>{label}
-              <input type="number" min="0" value={scoring.places[i]}
-                onChange={e => {
-                  const places = scoring.places.slice();
-                  places[i] = parseInt(e.target.value, 10) || 0;
-                  setScoring({ ...scoring, places });
-                }} />
-            </label>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /* ---------------------------------------------------------------- shell */
 
 function App() {
@@ -1593,8 +1304,6 @@ function App() {
   const [results, setResults] = useState(() => load('ath_results', []));
   const [prefs, setPrefs] = useState(() => load('ath_prefs', {}));
   const [settings, setSettings] = useState(() => load('ath_settings', { maxPerStudent: 2, spotsPerEvent: 1 }));
-  const [sheetEntries, setSheetEntries] = useState(() => load('ath_sheets', {}));
-  const [scoring, setScoring] = useState(() => load('ath_scoring', DEFAULT_SCORING));
 
   useEffect(() => { store.setItem('ath_houses', JSON.stringify(houses)); }, [houses]);
   useEffect(() => { store.setItem('ath_events', JSON.stringify(events)); }, [events]);
@@ -1602,12 +1311,10 @@ function App() {
   useEffect(() => { store.setItem('ath_results', JSON.stringify(results)); }, [results]);
   useEffect(() => { store.setItem('ath_prefs', JSON.stringify(prefs)); }, [prefs]);
   useEffect(() => { store.setItem('ath_settings', JSON.stringify(settings)); }, [settings]);
-  useEffect(() => { store.setItem('ath_sheets', JSON.stringify(sheetEntries)); }, [sheetEntries]);
-  useEffect(() => { store.setItem('ath_scoring', JSON.stringify(scoring)); }, [scoring]);
 
   const TABS = [
-    ['events', 'Events'], ['houses', 'Houses'], ['students', 'Students'], ['import', 'Import'],
-    ['sheets', 'Event sheets'], ['points', 'Points'], ['results', 'Results'], ['district', 'District'],
+    ['events', 'Events'], ['houses', 'Houses'], ['students', 'Students'],
+    ['import', 'Import'], ['results', 'Results'], ['sheets', 'Event sheets'], ['district', 'District'],
   ];
 
   return (
@@ -1619,7 +1326,7 @@ function App() {
         </div>
         <button className="btn-ghost noprint" onClick={() => {
           if (confirm('Erase every event, student and result stored in this browser?')) {
-            ['ath_houses','ath_events','ath_students','ath_results','ath_prefs','ath_settings','ath_sheets','ath_scoring'].forEach(k => store.removeItem(k));
+            ['ath_houses','ath_events','ath_students','ath_results','ath_prefs','ath_settings'].forEach(k => store.removeItem(k));
             location.reload();
           }
         }}>Erase all data</button>
@@ -1632,15 +1339,12 @@ function App() {
       </div>
 
       {tab === 'events'   && <EventsTab   events={events} setEvents={setEvents} />}
-      {tab === 'houses'   && <HousesTab   houses={houses} setHouses={setHouses} students={students} sheetEntries={sheetEntries} scoring={scoring} />}
+      {tab === 'houses'   && <HousesTab   houses={houses} setHouses={setHouses} students={students} events={events} results={results} />}
       {tab === 'students' && <StudentsTab students={students} setStudents={setStudents} houses={houses} />}
       {tab === 'import'   && <ImportTab   students={students} setStudents={setStudents} houses={houses} setHouses={setHouses} />}
       {tab === 'results'  && <ResultsTab  events={events} students={students} results={results} setResults={setResults} houses={houses} />}
       {tab === 'sheets'   && <SheetsTab   events={events} students={students} results={results} houses={houses} />}
-      {tab === 'points'   && <PointsTab   events={events} students={students} houses={houses}
-                               sheetEntries={sheetEntries} setSheetEntries={setSheetEntries}
-                               scoring={scoring} setScoring={setScoring} />}
-      {tab === 'district' && <DistrictTab events={events} students={students} results={results} prefs={prefs} setPrefs={setPrefs} settings={settings} setSettings={setSettings} sheetEntries={sheetEntries} />}
+      {tab === 'district' && <DistrictTab events={events} students={students} results={results} prefs={prefs} setPrefs={setPrefs} settings={settings} setSettings={setSettings} />}
     </div>
   );
 }
