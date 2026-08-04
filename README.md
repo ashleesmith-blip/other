@@ -32,12 +32,17 @@ to regenerate `index.html`.
 
 One sheet per event and division, with every student in that division already listed by house,
 numbered, with blank **Result** and **Place** columns and lines for the marshal's name and the date.
-Filter to a single event, year or gender, or print the whole carnival at once. Spare rows at the
-bottom are configurable.
+Filter to a single event, year or gender, or print the whole carnival at once.
+
+**One sheet is exactly one A4 page.** A division bigger than a page — most of them, at around 60
+students — carries on across numbered sheets (*sheet 1 of 2*), each with its own heading and marshal
+line, so nothing runs off the bottom. Rows per page is adjustable up to 34, which is the most that
+clears an A4 text area at the print sizes in `src/styles.css`.
+
+**Write-in rows** are blank numbered lines at the end of the last sheet for anyone not on the list —
+a late entry, or a student who's moved class. Four by default.
 
 - **Print / save as PDF** opens the browser print dialog — pick *Save as PDF* there for a file.
-  Each sheet starts on a fresh page; a division too long for one page carries on with the column
-  headings repeated.
 - **Fill in the results already recorded** switches the same sheets from blank to completed, in
   placing order — handy for pinning up results or filing them after the carnival.
 - **Download these sheets as CSV** / **Download all results as CSV** for anything you'd rather do

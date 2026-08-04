@@ -44,28 +44,38 @@
   .medal1 { background: #fef9c3; }
   .medal2 { background: #f1f5f9; }
   .medal3 { background: #ffedd5; }
-  .sheet { background: #fff; border: 1px solid #e0e4e8; border-radius: 10px; padding: 18px; margin-bottom: 16px; }
+  /* On screen a sheet is shown at A4 width so what you see matches what prints. */
+.sheet {
+  background: #fff; border: 1px solid #e0e4e8; border-radius: 10px;
+  padding: 18px; margin: 0 auto 16px; max-width: 794px;
+}
 .sheet-head { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; align-items: flex-start; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 2px solid #1a2027; }
 .sheet-title { font-size: 17px; font-weight: 700; }
-.sheet td { height: 30px; }
+.sheet td { height: 27px; }
 .sheet td:nth-child(4), .sheet td:nth-child(5) { border-left: 1px solid #e8ecef; }
+.sheet tr.blank td { height: 30px; }
+.sheet tr.blank td:nth-child(2) { border-bottom: 1px solid #c8ced4; }
 
 @media print {
   .tabs, .topbar, .noprint { display: none !important; }
   body { background: #fff; }
   .wrap { max-width: none; padding: 0; }
-  /* A division can run to 60 students, so a sheet may be taller than a page:
-     let it flow, but start each new sheet on a fresh page and repeat the
-     column headings and the event title on every page it spills onto. */
+  /* Each sheet is already chunked to fit one page, so one sheet = one page.
+     thead repeats and rows stay whole as a safety net if rows-per-page is
+     pushed too high for the paper. */
   .sheet {
-    border: none; border-radius: 0; padding: 0; margin: 0;
+    border: none; border-radius: 0; padding: 0; margin: 0; max-width: none;
     break-after: page; page-break-after: always;
   }
   .sheet:last-child { break-after: auto; page-break-after: auto; }
   .sheet thead { display: table-header-group; }
   .sheet tr { break-inside: avoid; page-break-inside: avoid; }
   .sheet-head { break-after: avoid; page-break-after: avoid; }
-  .sheet td { height: 26px; }
+  /* Tighter than on screen so a full 34 rows clears the A4 text area. */
+  .sheet th, .sheet td { padding: 3px 8px; }
+  .sheet td { height: 20px; font-size: 13px; }
+  .sheet tr.blank td { height: 22px; }
+  .sheet-title { font-size: 15px; }
   th { background: #f0f2f4 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   @page { margin: 14mm; }
 }

@@ -30,6 +30,10 @@ const DEFAULT_EVENTS = [
   { id: 'e11', name: '4x100m Relay',  type: 'relay', scoring: 'lower',  unit: 'sec', years: ['3','4','5','6'] },
 ];
 
+// The most table rows that clear the text area of an A4 page at the print
+// sizes in styles.css. Measured, not guessed — see the print block there.
+const MAX_ROWS_PER_A4 = 34;
+
 const uid = (p) => p + '_' + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
 
 // "1:23.4" -> 83.4 ; "12.55" -> 12.55 ; "3.20" -> 3.2
@@ -950,7 +954,8 @@ function SheetsTab({ events, students, results, houses }) {
   const [eventId, setEventId] = useState('all');
   const [year, setYear] = useState('all');
   const [gender, setGender] = useState('all');
-  const [blankRows, setBlankRows] = useState(3);
+  const [blankRows, setBlankRows] = useState(4);
+  const [rowsPerPage, setRowsPerPage] = useState(30);
   const [withResults, setWithResults] = useState(false);
 
   const houseName = (id) => (houses.find(h => h.id === id) || {}).name || '';
@@ -958,7 +963,12 @@ function SheetsTab({ events, students, results, houses }) {
     const m = {}; students.forEach(s => { m[s.id] = s; }); return m;
   }, [students]);
 
-  // One sheet per event x year x gender that has students in it.
+  /*
+   * One printed page per sheet. A year-level-and-gender division can run to 60
+   * students, which is far more than fits on A4, so each division is split into
+   * pages of `rowsPerPage` and every page gets its own heading and marshal line.
+   * The write-in blanks go on the end, so they land on the final page.
+   */
   const sheets = useMemo(() => {
     const out = [];
     const years = year === 'all' ? YEARS : [year];
@@ -973,12 +983,25 @@ function SheetsTab({ events, students, results, houses }) {
           const order = withResults
             ? ranked.map(r => studentsById[r.studentId]).concat(roll.filter(s => !ranked.some(r => r.studentId === s.id)))
             : roll.slice().sort((a, b) => (houseName(a.house) + a.name).localeCompare(houseName(b.house) + b.name));
-          out.push({ event: ev, year: y, gender: g, roll: order, ranked });
+
+          const entries = order.concat(Array.from({ length: blankRows }, () => null));
+          const pageCount = Math.max(1, Math.ceil(entries.length / rowsPerPage));
+          for (let p = 0; p < pageCount; p++) {
+            out.push({
+              event: ev, year: y, gender: g, ranked,
+              rows: entries.slice(p * rowsPerPage, (p + 1) * rowsPerPage),
+              offset: p * rowsPerPage,
+              page: p + 1,
+              pageCount,
+            });
+          }
         });
       });
     });
     return out;
-  }, [events, students, results, eventId, year, gender, withResults, houses]);
+  }, [events, students, results, eventId, year, gender, withResults, houses, blankRows, rowsPerPage]);
+
+  const divisionCount = new Set(sheets.map(s => s.event.id + s.year + s.gender)).size;
 
   const exportResultsCsv = () => {
     const rows = [['Event', 'Year', 'Gender', 'Place', 'Student', 'House', 'Result', 'Unit']];
@@ -1001,7 +1024,8 @@ function SheetsTab({ events, students, results, houses }) {
 
   const exportSheetsCsv = () => {
     const rows = [['Event', 'Year', 'Gender', 'Student', 'House', 'Result']];
-    sheets.forEach(sh => sh.roll.forEach(s => {
+    sheets.forEach(sh => sh.rows.forEach(s => {
+      if (!s) return; // write-in blanks have no data to export
       const hit = sh.ranked.find(r => r.studentId === s.id);
       rows.push([sh.event.name, sh.year, sh.gender, s.name, houseName(s.house), hit ? hit.result : '']);
     }));
@@ -1038,11 +1062,20 @@ function SheetsTab({ events, students, results, houses }) {
               <option>Female</option><option>Male</option><option>Mixed</option>
             </select>
           </label>
-          <label className="fld">Spare rows
-            <input type="number" min="0" max="10" value={blankRows}
-              onChange={e => setBlankRows(Math.max(0, Math.min(10, parseInt(e.target.value) || 0)))} />
+          <label className="fld">Write-in rows
+            <input type="number" min="0" max="20" value={blankRows}
+              onChange={e => setBlankRows(Math.max(0, Math.min(20, parseInt(e.target.value) || 0)))} />
+          </label>
+          <label className="fld">Rows per page
+            <input type="number" min="10" max={MAX_ROWS_PER_A4} value={rowsPerPage}
+              onChange={e => setRowsPerPage(Math.max(10, Math.min(MAX_ROWS_PER_A4, parseInt(e.target.value) || 30)))} />
           </label>
         </div>
+        <p className="muted" style={{ marginTop: 0 }}>
+          Each sheet is one A4 page. A division with more students than fits carries on across
+          numbered sheets, so nothing ever runs off the bottom. Up to {MAX_ROWS_PER_A4} rows clear an
+          A4 page. The write-in rows are blank lines at the end for adding anyone not on the list.
+        </p>
         <label style={{ fontSize: 14, display: 'block', marginBottom: 12 }}>
           <input type="checkbox" checked={withResults} onChange={e => setWithResults(e.target.checked)} />
           {' '}Fill in the results already recorded, in placing order (leave off for blank sheets to write on)
@@ -1053,7 +1086,8 @@ function SheetsTab({ events, students, results, houses }) {
           <button className="btn-ghost" onClick={exportResultsCsv}>Download all results as CSV</button>
         </div>
         <p className="muted" style={{ marginBottom: 0, marginTop: 12 }}>
-          {sheets.length} sheet{sheets.length === 1 ? '' : 's'} ready.
+          {sheets.length} page{sheets.length === 1 ? '' : 's'} across {divisionCount} event
+          {divisionCount === 1 ? '' : 's'} and division{divisionCount === 1 ? '' : 's'}.
         </p>
       </div>
 
@@ -1063,7 +1097,10 @@ function SheetsTab({ events, students, results, houses }) {
         <div className="sheet" key={sh.event.id + sh.year + sh.gender + i}>
           <div className="sheet-head">
             <div>
-              <div className="sheet-title">{sh.event.name} — Year {sh.year} {sh.gender}</div>
+              <div className="sheet-title">
+                {sh.event.name} — Year {sh.year} {sh.gender}
+                {sh.pageCount > 1 && <span className="muted"> · sheet {sh.page} of {sh.pageCount}</span>}
+              </div>
               <div className="muted">
                 {sh.event.scoring === 'lower' ? 'Fastest wins' : 'Furthest / highest wins'} · record in {sh.event.unit}
               </div>
@@ -1083,11 +1120,19 @@ function SheetsTab({ events, students, results, houses }) {
               </tr>
             </thead>
             <tbody>
-              {sh.roll.map((s, idx) => {
+              {sh.rows.map((s, idx) => {
+                if (!s) {
+                  return (
+                    <tr className="blank" key={'blank' + idx}>
+                      <td className="muted">{sh.offset + idx + 1}</td>
+                      <td></td><td></td><td></td><td></td>
+                    </tr>
+                  );
+                }
                 const hit = sh.ranked.find(r => r.studentId === s.id);
                 return (
                   <tr key={s.id}>
-                    <td className="muted">{idx + 1}</td>
+                    <td className="muted">{sh.offset + idx + 1}</td>
                     <td>{s.name}</td>
                     <td className="muted">{houseName(s.house)}</td>
                     <td>{withResults && hit ? hit.result : ''}</td>
@@ -1095,12 +1140,6 @@ function SheetsTab({ events, students, results, houses }) {
                   </tr>
                 );
               })}
-              {Array.from({ length: blankRows }).map((_, k) => (
-                <tr key={'blank' + k}>
-                  <td className="muted">{sh.roll.length + k + 1}</td>
-                  <td></td><td></td><td></td><td></td>
-                </tr>
-              ))}
             </tbody>
           </table>
         </div>

@@ -52,28 +52,38 @@
   .medal1 { background: #fef9c3; }
   .medal2 { background: #f1f5f9; }
   .medal3 { background: #ffedd5; }
-  .sheet { background: #fff; border: 1px solid #e0e4e8; border-radius: 10px; padding: 18px; margin-bottom: 16px; }
+  /* On screen a sheet is shown at A4 width so what you see matches what prints. */
+.sheet {
+  background: #fff; border: 1px solid #e0e4e8; border-radius: 10px;
+  padding: 18px; margin: 0 auto 16px; max-width: 794px;
+}
 .sheet-head { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; align-items: flex-start; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 2px solid #1a2027; }
 .sheet-title { font-size: 17px; font-weight: 700; }
-.sheet td { height: 30px; }
+.sheet td { height: 27px; }
 .sheet td:nth-child(4), .sheet td:nth-child(5) { border-left: 1px solid #e8ecef; }
+.sheet tr.blank td { height: 30px; }
+.sheet tr.blank td:nth-child(2) { border-bottom: 1px solid #c8ced4; }
 
 @media print {
   .tabs, .topbar, .noprint { display: none !important; }
   body { background: #fff; }
   .wrap { max-width: none; padding: 0; }
-  /* A division can run to 60 students, so a sheet may be taller than a page:
-     let it flow, but start each new sheet on a fresh page and repeat the
-     column headings and the event title on every page it spills onto. */
+  /* Each sheet is already chunked to fit one page, so one sheet = one page.
+     thead repeats and rows stay whole as a safety net if rows-per-page is
+     pushed too high for the paper. */
   .sheet {
-    border: none; border-radius: 0; padding: 0; margin: 0;
+    border: none; border-radius: 0; padding: 0; margin: 0; max-width: none;
     break-after: page; page-break-after: always;
   }
   .sheet:last-child { break-after: auto; page-break-after: auto; }
   .sheet thead { display: table-header-group; }
   .sheet tr { break-inside: avoid; page-break-inside: avoid; }
   .sheet-head { break-after: avoid; page-break-after: avoid; }
-  .sheet td { height: 26px; }
+  /* Tighter than on screen so a full 34 rows clears the A4 text area. */
+  .sheet th, .sheet td { padding: 3px 8px; }
+  .sheet td { height: 20px; font-size: 13px; }
+  .sheet tr.blank td { height: 22px; }
+  .sheet-title { font-size: 15px; }
   th { background: #f0f2f4 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   @page { margin: 14mm; }
 }
@@ -495,6 +505,10 @@ const DEFAULT_EVENTS = [{
   unit: 'sec',
   years: ['3', '4', '5', '6']
 }];
+
+// The most table rows that clear the text area of an A4 page at the print
+// sizes in styles.css. Measured, not guessed — see the print block there.
+const MAX_ROWS_PER_A4 = 34;
 const uid = p => p + '_' + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
 
 // "1:23.4" -> 83.4 ; "12.55" -> 12.55 ; "3.20" -> 3.2
@@ -1674,7 +1688,8 @@ function SheetsTab({
   const [eventId, setEventId] = useState('all');
   const [year, setYear] = useState('all');
   const [gender, setGender] = useState('all');
-  const [blankRows, setBlankRows] = useState(3);
+  const [blankRows, setBlankRows] = useState(4);
+  const [rowsPerPage, setRowsPerPage] = useState(30);
   const [withResults, setWithResults] = useState(false);
   const houseName = id => (houses.find(h => h.id === id) || {}).name || '';
   const studentsById = useMemo(() => {
@@ -1685,7 +1700,12 @@ function SheetsTab({
     return m;
   }, [students]);
 
-  // One sheet per event x year x gender that has students in it.
+  /*
+   * One printed page per sheet. A year-level-and-gender division can run to 60
+   * students, which is far more than fits on A4, so each division is split into
+   * pages of `rowsPerPage` and every page gets its own heading and marshal line.
+   * The write-in blanks go on the end, so they land on the final page.
+   */
   const sheets = useMemo(() => {
     const out = [];
     const years = year === 'all' ? YEARS : [year];
@@ -1698,18 +1718,28 @@ function SheetsTab({
           if (!roll.length) return;
           const ranked = rankFor(results, ev.id, y + ' ' + g, ev.scoring, studentsById);
           const order = withResults ? ranked.map(r => studentsById[r.studentId]).concat(roll.filter(s => !ranked.some(r => r.studentId === s.id))) : roll.slice().sort((a, b) => (houseName(a.house) + a.name).localeCompare(houseName(b.house) + b.name));
-          out.push({
-            event: ev,
-            year: y,
-            gender: g,
-            roll: order,
-            ranked
-          });
+          const entries = order.concat(Array.from({
+            length: blankRows
+          }, () => null));
+          const pageCount = Math.max(1, Math.ceil(entries.length / rowsPerPage));
+          for (let p = 0; p < pageCount; p++) {
+            out.push({
+              event: ev,
+              year: y,
+              gender: g,
+              ranked,
+              rows: entries.slice(p * rowsPerPage, (p + 1) * rowsPerPage),
+              offset: p * rowsPerPage,
+              page: p + 1,
+              pageCount
+            });
+          }
         });
       });
     });
     return out;
-  }, [events, students, results, eventId, year, gender, withResults, houses]);
+  }, [events, students, results, eventId, year, gender, withResults, houses, blankRows, rowsPerPage]);
+  const divisionCount = new Set(sheets.map(s => s.event.id + s.year + s.gender)).size;
   const exportResultsCsv = () => {
     const rows = [['Event', 'Year', 'Gender', 'Place', 'Student', 'House', 'Result', 'Unit']];
     events.forEach(ev => {
@@ -1730,7 +1760,8 @@ function SheetsTab({
   };
   const exportSheetsCsv = () => {
     const rows = [['Event', 'Year', 'Gender', 'Student', 'House', 'Result']];
-    sheets.forEach(sh => sh.roll.forEach(s => {
+    sheets.forEach(sh => sh.rows.forEach(s => {
+      if (!s) return; // write-in blanks have no data to export
       const hit = sh.ranked.find(r => r.studentId === s.id);
       rows.push([sh.event.name, sh.year, sh.gender, s.name, houseName(s.house), hit ? hit.result : '']);
     }));
@@ -1777,13 +1808,26 @@ function SheetsTab({
     value: "all"
   }, "All"), /*#__PURE__*/React.createElement("option", null, "Female"), /*#__PURE__*/React.createElement("option", null, "Male"), /*#__PURE__*/React.createElement("option", null, "Mixed"))), /*#__PURE__*/React.createElement("label", {
     className: "fld"
-  }, "Spare rows", /*#__PURE__*/React.createElement("input", {
+  }, "Write-in rows", /*#__PURE__*/React.createElement("input", {
     type: "number",
     min: "0",
-    max: "10",
+    max: "20",
     value: blankRows,
-    onChange: e => setBlankRows(Math.max(0, Math.min(10, parseInt(e.target.value) || 0)))
-  }))), /*#__PURE__*/React.createElement("label", {
+    onChange: e => setBlankRows(Math.max(0, Math.min(20, parseInt(e.target.value) || 0)))
+  })), /*#__PURE__*/React.createElement("label", {
+    className: "fld"
+  }, "Rows per page", /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    min: "10",
+    max: MAX_ROWS_PER_A4,
+    value: rowsPerPage,
+    onChange: e => setRowsPerPage(Math.max(10, Math.min(MAX_ROWS_PER_A4, parseInt(e.target.value) || 30)))
+  }))), /*#__PURE__*/React.createElement("p", {
+    className: "muted",
+    style: {
+      marginTop: 0
+    }
+  }, "Each sheet is one A4 page. A division with more students than fits carries on across numbered sheets, so nothing ever runs off the bottom. Up to ", MAX_ROWS_PER_A4, " rows clear an A4 page. The write-in rows are blank lines at the end for adding anyone not on the list."), /*#__PURE__*/React.createElement("label", {
     style: {
       fontSize: 14,
       display: 'block',
@@ -1810,7 +1854,7 @@ function SheetsTab({
       marginBottom: 0,
       marginTop: 12
     }
-  }, sheets.length, " sheet", sheets.length === 1 ? '' : 's', " ready.")), sheets.length === 0 && /*#__PURE__*/React.createElement("p", {
+  }, sheets.length, " page", sheets.length === 1 ? '' : 's', " across ", divisionCount, " event", divisionCount === 1 ? '' : 's', " and division", divisionCount === 1 ? '' : 's', ".")), sheets.length === 0 && /*#__PURE__*/React.createElement("p", {
     className: "muted noprint"
   }, "Nothing matches those filters."), sheets.map((sh, i) => /*#__PURE__*/React.createElement("div", {
     className: "sheet",
@@ -1819,7 +1863,9 @@ function SheetsTab({
     className: "sheet-head"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "sheet-title"
-  }, sh.event.name, " \u2014 Year ", sh.year, " ", sh.gender), /*#__PURE__*/React.createElement("div", {
+  }, sh.event.name, " \u2014 Year ", sh.year, " ", sh.gender, sh.pageCount > 1 && /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, " \xB7 sheet ", sh.page, " of ", sh.pageCount)), /*#__PURE__*/React.createElement("div", {
     className: "muted"
   }, sh.event.scoring === 'lower' ? 'Fastest wins' : 'Furthest / highest wins', " \xB7 record in ", sh.event.unit)), /*#__PURE__*/React.createElement("div", {
     className: "muted",
@@ -1842,22 +1888,24 @@ function SheetsTab({
     style: {
       width: 60
     }
-  }, "Place"))), /*#__PURE__*/React.createElement("tbody", null, sh.roll.map((s, idx) => {
+  }, "Place"))), /*#__PURE__*/React.createElement("tbody", null, sh.rows.map((s, idx) => {
+    if (!s) {
+      return /*#__PURE__*/React.createElement("tr", {
+        className: "blank",
+        key: 'blank' + idx
+      }, /*#__PURE__*/React.createElement("td", {
+        className: "muted"
+      }, sh.offset + idx + 1), /*#__PURE__*/React.createElement("td", null), /*#__PURE__*/React.createElement("td", null), /*#__PURE__*/React.createElement("td", null), /*#__PURE__*/React.createElement("td", null));
+    }
     const hit = sh.ranked.find(r => r.studentId === s.id);
     return /*#__PURE__*/React.createElement("tr", {
       key: s.id
     }, /*#__PURE__*/React.createElement("td", {
       className: "muted"
-    }, idx + 1), /*#__PURE__*/React.createElement("td", null, s.name), /*#__PURE__*/React.createElement("td", {
+    }, sh.offset + idx + 1), /*#__PURE__*/React.createElement("td", null, s.name), /*#__PURE__*/React.createElement("td", {
       className: "muted"
     }, houseName(s.house)), /*#__PURE__*/React.createElement("td", null, withResults && hit ? hit.result : ''), /*#__PURE__*/React.createElement("td", null, withResults && hit ? hit.place : ''));
-  }), Array.from({
-    length: blankRows
-  }).map((_, k) => /*#__PURE__*/React.createElement("tr", {
-    key: 'blank' + k
-  }, /*#__PURE__*/React.createElement("td", {
-    className: "muted"
-  }, sh.roll.length + k + 1), /*#__PURE__*/React.createElement("td", null), /*#__PURE__*/React.createElement("td", null), /*#__PURE__*/React.createElement("td", null), /*#__PURE__*/React.createElement("td", null))))))));
+  }))))));
 }
 
 /* ---------------------------------------------------------------- shell */
