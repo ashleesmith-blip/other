@@ -59,6 +59,9 @@
 }
 .sheet-head { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; align-items: flex-start; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 2px solid #1a2027; }
 .sheet-title { font-size: 17px; font-weight: 700; }
+.sheet-no { border: 2px solid #1a2027; border-radius: 8px; padding: 4px 12px; text-align: center; min-width: 62px; }
+.sheet-no-label { font-size: 9px; text-transform: uppercase; letter-spacing: .1em; font-weight: 700; }
+.sheet-no-value { font-size: 26px; font-weight: 800; line-height: 1.05; }
 .sheet td { height: 27px; }
 .sheet td:nth-child(4), .sheet td:nth-child(5) { border-left: 1px solid #e8ecef; }
 .sheet tr.blank td { height: 30px; }
@@ -84,6 +87,8 @@
   .sheet td { height: 20px; font-size: 13px; }
   .sheet tr.blank td { height: 22px; }
   .sheet-title { font-size: 15px; }
+  .sheet-no { padding: 2px 10px; min-width: 56px; }
+  .sheet-no-value { font-size: 22px; }
   th { background: #f0f2f4 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   @page { margin: 14mm; }
 }
@@ -528,6 +533,42 @@ function parseResult(str) {
 }
 const divisionOf = student => (student.yearLevel || '?') + ' ' + (student.gender || 'Mixed');
 const divKey = (eventId, division) => eventId + '::' + division;
+const GENDERS = ['Female', 'Male', 'Mixed'];
+
+/*
+ * Every event-and-division gets a sheet number, printed big on its recording
+ * sheet, so whoever types the results up can jump straight to the right list.
+ *
+ * The numbering walks the event program in a fixed order and deliberately
+ * ignores who is enrolled: a sheet handed in on Monday has to still mean the
+ * same thing on Friday, and students get added, moved and re-graded all the
+ * time. Only editing the event list itself renumbers anything.
+ */
+function buildSheetIndex(events) {
+  const byKey = {};
+  const byNumber = {};
+  let n = 0;
+  events.forEach(ev => {
+    YEARS.forEach(y => {
+      if (!ev.years.includes(y)) return;
+      GENDERS.forEach(g => {
+        n += 1;
+        byKey[divKey(ev.id, y + ' ' + g)] = n;
+        byNumber[n] = {
+          eventId: ev.id,
+          year: y,
+          gender: g,
+          event: ev
+        };
+      });
+    });
+  });
+  return {
+    byKey,
+    byNumber,
+    total: n
+  };
+}
 
 // Rank the results for one event+division. Returns [{studentId, raw, value, place}] best first.
 function rankFor(results, eventId, division, scoring, studentsById) {
@@ -1406,6 +1447,7 @@ function ResultsTab({
   const [eventId, setEventId] = useState(events.length ? events[0].id : '');
   const [year, setYear] = useState('5');
   const [gender, setGender] = useState('Female');
+  const [sheetNo, setSheetNo] = useState('');
   const event = events.find(e => e.id === eventId);
   const division = year + ' ' + gender;
   const studentsById = useMemo(() => {
@@ -1415,7 +1457,27 @@ function ResultsTab({
     });
     return m;
   }, [students]);
-  const inDivision = students.filter(s => s.yearLevel === year && s.gender === gender);
+  const sheetIndex = useMemo(() => buildSheetIndex(events), [events]);
+  const currentSheetNo = sheetIndex.byKey[divKey(eventId, division)];
+
+  // Typing the number off a returned recording sheet sets all three selects.
+  const goToSheet = value => {
+    setSheetNo(value);
+    const hit = sheetIndex.byNumber[parseInt(value, 10)];
+    if (!hit) return;
+    setEventId(hit.eventId);
+    setYear(hit.year);
+    setGender(hit.gender);
+  };
+  const sheetLookup = sheetIndex.byNumber[parseInt(sheetNo, 10)];
+
+  // Same order as the printed recording sheet — by house, then name — so results
+  // can be typed straight down the page without hunting for each name.
+  const houseName = id => (houses.find(h => h.id === id) || {}).name || '';
+
+  // Same order as the printed recording sheet — by house, then name — so results
+  // can be typed straight down the page without hunting for each name.
+  const inDivision = students.filter(s => s.yearLevel === year && s.gender === gender).sort((a, b) => (houseName(a.house) + a.name).localeCompare(houseName(b.house) + b.name));
   const ranked = event ? rankFor(results, event.id, division, event.scoring, studentsById) : [];
   const resultFor = sid => {
     const r = results.find(x => x.eventId === eventId && x.studentId === sid);
@@ -1440,16 +1502,45 @@ function ResultsTab({
       }]));
     }
   };
-  const houseName = id => (houses.find(h => h.id === id) || {}).name || '';
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h2", null, "Results"), /*#__PURE__*/React.createElement("div", {
     className: "card noprint"
   }, /*#__PURE__*/React.createElement("div", {
+    className: "row",
+    style: {
+      alignItems: 'flex-start'
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    className: "fld",
+    style: {
+      flex: '0 0 150px'
+    }
+  }, "Sheet number", /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    min: "1",
+    max: sheetIndex.total,
+    value: sheetNo,
+    placeholder: "type it in",
+    onChange: e => goToSheet(e.target.value)
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: '2 1 260px',
+      paddingBottom: 10
+    },
+    className: "muted"
+  }, sheetNo === '' ? 'Straight off the top of a returned recording sheet — it jumps to that list.' : sheetLookup ? /*#__PURE__*/React.createElement("span", null, "\u2192 ", /*#__PURE__*/React.createElement("strong", null, sheetLookup.event.name), ", Year ", sheetLookup.year, " ", sheetLookup.gender) : /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: '#b45309'
+    }
+  }, "No sheet ", sheetNo, ". They run 1 to ", sheetIndex.total, "."))), /*#__PURE__*/React.createElement("div", {
     className: "row"
   }, /*#__PURE__*/React.createElement("label", {
     className: "fld"
   }, "Event", /*#__PURE__*/React.createElement("select", {
     value: eventId,
-    onChange: e => setEventId(e.target.value)
+    onChange: e => {
+      setEventId(e.target.value);
+      setSheetNo('');
+    }
   }, events.map(ev => /*#__PURE__*/React.createElement("option", {
     key: ev.id,
     value: ev.id
@@ -1457,7 +1548,10 @@ function ResultsTab({
     className: "fld"
   }, "Year", /*#__PURE__*/React.createElement("select", {
     value: year,
-    onChange: e => setYear(e.target.value)
+    onChange: e => {
+      setYear(e.target.value);
+      setSheetNo('');
+    }
   }, YEARS.map(y => /*#__PURE__*/React.createElement("option", {
     key: y,
     value: y
@@ -1465,14 +1559,26 @@ function ResultsTab({
     className: "fld"
   }, "Gender", /*#__PURE__*/React.createElement("select", {
     value: gender,
-    onChange: e => setGender(e.target.value)
-  }, /*#__PURE__*/React.createElement("option", null, "Female"), /*#__PURE__*/React.createElement("option", null, "Male"), /*#__PURE__*/React.createElement("option", null, "Mixed")))), event && !event.years.includes(year) && /*#__PURE__*/React.createElement("div", {
+    onChange: e => {
+      setGender(e.target.value);
+      setSheetNo('');
+    }
+  }, GENDERS.map(g => /*#__PURE__*/React.createElement("option", {
+    key: g,
+    value: g
+  }, g))))), event && !event.years.includes(year) && /*#__PURE__*/React.createElement("div", {
     className: "warn"
   }, event.name, " is not normally run at Year ", year, ". You can still record it.")), !event ? /*#__PURE__*/React.createElement("p", {
     className: "muted"
   }, "Add an event first.") : /*#__PURE__*/React.createElement("div", {
     className: "card"
-  }, /*#__PURE__*/React.createElement("h3", null, event.name, " \u2014 Year ", year, " ", gender, /*#__PURE__*/React.createElement("span", {
+  }, /*#__PURE__*/React.createElement("h3", null, currentSheetNo && /*#__PURE__*/React.createElement("span", {
+    className: "pill",
+    style: {
+      background: '#e0e7ff',
+      marginRight: 8
+    }
+  }, "Sheet ", currentSheetNo), event.name, " \u2014 Year ", year, " ", gender, /*#__PURE__*/React.createElement("span", {
     className: "muted",
     style: {
       fontWeight: 400
@@ -1699,6 +1805,7 @@ function SheetsTab({
     });
     return m;
   }, [students]);
+  const sheetIndex = useMemo(() => buildSheetIndex(events), [events]);
 
   /*
    * One printed page per sheet. A year-level-and-gender division can run to 60
@@ -1741,7 +1848,7 @@ function SheetsTab({
   }, [events, students, results, eventId, year, gender, withResults, houses, blankRows, rowsPerPage]);
   const divisionCount = new Set(sheets.map(s => s.event.id + s.year + s.gender)).size;
   const exportResultsCsv = () => {
-    const rows = [['Event', 'Year', 'Gender', 'Place', 'Student', 'House', 'Result', 'Unit']];
+    const rows = [['Sheet', 'Event', 'Year', 'Gender', 'Place', 'Student', 'House', 'Result', 'Unit']];
     events.forEach(ev => {
       const divisions = new Set();
       results.filter(r => r.eventId === ev.id).forEach(r => {
@@ -1751,7 +1858,7 @@ function SheetsTab({
       Array.from(divisions).sort().forEach(division => {
         rankFor(results, ev.id, division, ev.scoring, studentsById).forEach(r => {
           const st = studentsById[r.studentId];
-          rows.push([ev.name, st.yearLevel, st.gender, r.place, st.name, houseName(st.house), r.result, ev.unit]);
+          rows.push([sheetIndex.byKey[divKey(ev.id, division)] || '', ev.name, st.yearLevel, st.gender, r.place, st.name, houseName(st.house), r.result, ev.unit]);
         });
       });
     });
@@ -1759,11 +1866,11 @@ function SheetsTab({
     download('athletics-results.csv', toCsv(rows), 'text/csv;charset=utf-8');
   };
   const exportSheetsCsv = () => {
-    const rows = [['Event', 'Year', 'Gender', 'Student', 'House', 'Result']];
+    const rows = [['Sheet', 'Event', 'Year', 'Gender', 'Student', 'House', 'Result']];
     sheets.forEach(sh => sh.rows.forEach(s => {
       if (!s) return; // write-in blanks have no data to export
       const hit = sh.ranked.find(r => r.studentId === s.id);
-      rows.push([sh.event.name, sh.year, sh.gender, s.name, houseName(s.house), hit ? hit.result : '']);
+      rows.push([sheetIndex.byKey[divKey(sh.event.id, sh.year + ' ' + sh.gender)] || '', sh.event.name, sh.year, sh.gender, s.name, houseName(s.house), hit ? hit.result : '']);
     }));
     if (rows.length === 1) return alert('Nothing to export — check the filters.');
     download('athletics-event-sheets.csv', toCsv(rows), 'text/csv;charset=utf-8');
@@ -1827,7 +1934,7 @@ function SheetsTab({
     style: {
       marginTop: 0
     }
-  }, "Each sheet is one A4 page. A division with more students than fits carries on across numbered sheets, so nothing ever runs off the bottom. Up to ", MAX_ROWS_PER_A4, " rows clear an A4 page. The write-in rows are blank lines at the end for adding anyone not on the list."), /*#__PURE__*/React.createElement("label", {
+  }, "Each sheet is one A4 page and carries a ", /*#__PURE__*/React.createElement("strong", null, "sheet number"), " in the top corner \u2014 type that into the Results tab to jump straight to the right list. A division with more students than fits carries on across extra pages under the same sheet number, so nothing runs off the bottom. Up to ", MAX_ROWS_PER_A4, " rows clear an A4 page. The write-in rows are blank lines at the end for adding anyone not on the list."), /*#__PURE__*/React.createElement("label", {
     style: {
       fontSize: 14,
       display: 'block',
@@ -1861,11 +1968,21 @@ function SheetsTab({
     key: sh.event.id + sh.year + sh.gender + i
   }, /*#__PURE__*/React.createElement("div", {
     className: "sheet-head"
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "sheet-no"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "sheet-no-label"
+  }, "Sheet"), /*#__PURE__*/React.createElement("div", {
+    className: "sheet-no-value"
+  }, sheetIndex.byKey[divKey(sh.event.id, sh.year + ' ' + sh.gender)])), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1
+    }
+  }, /*#__PURE__*/React.createElement("div", {
     className: "sheet-title"
   }, sh.event.name, " \u2014 Year ", sh.year, " ", sh.gender, sh.pageCount > 1 && /*#__PURE__*/React.createElement("span", {
     className: "muted"
-  }, " \xB7 sheet ", sh.page, " of ", sh.pageCount)), /*#__PURE__*/React.createElement("div", {
+  }, " \xB7 page ", sh.page, " of ", sh.pageCount)), /*#__PURE__*/React.createElement("div", {
     className: "muted"
   }, sh.event.scoring === 'lower' ? 'Fastest wins' : 'Furthest / highest wins', " \xB7 record in ", sh.event.unit)), /*#__PURE__*/React.createElement("div", {
     className: "muted",

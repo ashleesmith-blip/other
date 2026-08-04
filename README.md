@@ -24,7 +24,7 @@ to regenerate `index.html`.
 | **Houses** | House cards with student counts and live points (3/2/1 for the first three places in every event and division), plus a ranked bar chart. |
 | **Students** | The whole list, filterable by year, house and name. Year level, gender, house and beep test are all editable straight in the table. **Change a whole group at once** moves a homegroup, a year level, everyone currently shown by the filters, or everyone missing a year level — for rollover, or when a homegroup code didn't give the right year on import. |
 | **Import** | Paste four columns out of Excel — **Name, Gender, Homegroup, House** — or load a `.json`/`.csv`. Year level is read from the homegroup code (`I3P` → 3), houses named in the file are created if they don't exist, and re-importing skips anyone already on the list. Everything previews before it applies. There's a download button here to back the list up. |
-| **Results** | Pick event + year + gender and type times down the list. Placings rank themselves as you type, first three shaded. Handles `m:ss.s` for the 800m and 1500m. |
+| **Results** | Type in a sheet number, or pick event + year + gender, then enter times down the list in the same order as the printed sheet. Placings rank themselves as you type, first three shaded. Handles `m:ss.s` for the 800m and 1500m. |
 | **Event sheets** | Printable recording sheets — see below. |
 | **District** | The interesting one — see below. |
 
@@ -41,6 +41,14 @@ clears an A4 text area at the print sizes in `src/styles.css`.
 
 **Write-in rows** are blank numbered lines at the end of the last sheet for anyone not on the list —
 a late entry, or a student who's moved class. Four by default.
+
+**Sheet numbers.** Every sheet carries a number in a box at the top. Type it into the box on the
+Results tab and it jumps straight to that event and division, so results come off paper without
+hunting through dropdowns — and the Results list is in the same house-then-name order as the sheet,
+so you can type straight down the page. The number identifies the event and division, not the piece
+of paper, so a division spanning two pages shows the same number on both. Numbers come from the
+event program alone and ignore who is enrolled, so a sheet handed in days later still resolves;
+only editing the event list itself renumbers anything.
 
 - **Print / save as PDF** opens the browser print dialog — pick *Save as PDF* there for a file.
 - **Fill in the results already recorded** switches the same sheets from blank to completed, in

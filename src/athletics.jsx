@@ -54,6 +54,34 @@ function parseResult(str) {
 const divisionOf = (student) => (student.yearLevel || '?') + ' ' + (student.gender || 'Mixed');
 const divKey = (eventId, division) => eventId + '::' + division;
 
+const GENDERS = ['Female', 'Male', 'Mixed'];
+
+/*
+ * Every event-and-division gets a sheet number, printed big on its recording
+ * sheet, so whoever types the results up can jump straight to the right list.
+ *
+ * The numbering walks the event program in a fixed order and deliberately
+ * ignores who is enrolled: a sheet handed in on Monday has to still mean the
+ * same thing on Friday, and students get added, moved and re-graded all the
+ * time. Only editing the event list itself renumbers anything.
+ */
+function buildSheetIndex(events) {
+  const byKey = {};
+  const byNumber = {};
+  let n = 0;
+  events.forEach(ev => {
+    YEARS.forEach(y => {
+      if (!ev.years.includes(y)) return;
+      GENDERS.forEach(g => {
+        n += 1;
+        byKey[divKey(ev.id, y + ' ' + g)] = n;
+        byNumber[n] = { eventId: ev.id, year: y, gender: g, event: ev };
+      });
+    });
+  });
+  return { byKey, byNumber, total: n };
+}
+
 // Rank the results for one event+division. Returns [{studentId, raw, value, place}] best first.
 function rankFor(results, eventId, division, scoring, studentsById) {
   const rows = results
@@ -686,13 +714,36 @@ function ResultsTab({ events, students, results, setResults, houses }) {
   const [year, setYear] = useState('5');
   const [gender, setGender] = useState('Female');
 
+  const [sheetNo, setSheetNo] = useState('');
+
   const event = events.find(e => e.id === eventId);
   const division = year + ' ' + gender;
   const studentsById = useMemo(() => {
     const m = {}; students.forEach(s => { m[s.id] = s; }); return m;
   }, [students]);
+  const sheetIndex = useMemo(() => buildSheetIndex(events), [events]);
+  const currentSheetNo = sheetIndex.byKey[divKey(eventId, division)];
 
-  const inDivision = students.filter(s => s.yearLevel === year && s.gender === gender);
+  // Typing the number off a returned recording sheet sets all three selects.
+  const goToSheet = (value) => {
+    setSheetNo(value);
+    const hit = sheetIndex.byNumber[parseInt(value, 10)];
+    if (!hit) return;
+    setEventId(hit.eventId);
+    setYear(hit.year);
+    setGender(hit.gender);
+  };
+  const sheetLookup = sheetIndex.byNumber[parseInt(sheetNo, 10)];
+
+  // Same order as the printed recording sheet — by house, then name — so results
+  // can be typed straight down the page without hunting for each name.
+  const houseName = (id) => (houses.find(h => h.id === id) || {}).name || '';
+
+  // Same order as the printed recording sheet — by house, then name — so results
+  // can be typed straight down the page without hunting for each name.
+  const inDivision = students
+    .filter(s => s.yearLevel === year && s.gender === gender)
+    .sort((a, b) => (houseName(a.house) + a.name).localeCompare(houseName(b.house) + b.name));
   const ranked = event ? rankFor(results, event.id, division, event.scoring, studentsById) : [];
   const resultFor = (sid) => {
     const r = results.find(x => x.eventId === eventId && x.studentId === sid);
@@ -708,26 +759,37 @@ function ResultsTab({ events, students, results, setResults, houses }) {
       setResults(results.concat([{ id: uid('r'), eventId, studentId: sid, result: value, date: new Date().toISOString().slice(0, 10) }]));
     }
   };
-  const houseName = (id) => (houses.find(h => h.id === id) || {}).name || '';
 
   return (
     <div>
       <h2>Results</h2>
       <div className="card noprint">
+        <div className="row" style={{ alignItems: 'flex-start' }}>
+          <label className="fld" style={{ flex: '0 0 150px' }}>Sheet number
+            <input type="number" min="1" max={sheetIndex.total} value={sheetNo} placeholder="type it in"
+              onChange={e => goToSheet(e.target.value)} />
+          </label>
+          <div style={{ flex: '2 1 260px', paddingBottom: 10 }} className="muted">
+            {sheetNo === '' ? 'Straight off the top of a returned recording sheet — it jumps to that list.'
+              : sheetLookup
+                ? <span>→ <strong>{sheetLookup.event.name}</strong>, Year {sheetLookup.year} {sheetLookup.gender}</span>
+                : <span style={{ color: '#b45309' }}>No sheet {sheetNo}. They run 1 to {sheetIndex.total}.</span>}
+          </div>
+        </div>
         <div className="row">
           <label className="fld">Event
-            <select value={eventId} onChange={e => setEventId(e.target.value)}>
+            <select value={eventId} onChange={e => { setEventId(e.target.value); setSheetNo(''); }}>
               {events.map(ev => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
             </select>
           </label>
           <label className="fld">Year
-            <select value={year} onChange={e => setYear(e.target.value)}>
+            <select value={year} onChange={e => { setYear(e.target.value); setSheetNo(''); }}>
               {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
             </select>
           </label>
           <label className="fld">Gender
-            <select value={gender} onChange={e => setGender(e.target.value)}>
-              <option>Female</option><option>Male</option><option>Mixed</option>
+            <select value={gender} onChange={e => { setGender(e.target.value); setSheetNo(''); }}>
+              {GENDERS.map(g => <option key={g} value={g}>{g}</option>)}
             </select>
           </label>
         </div>
@@ -738,7 +800,9 @@ function ResultsTab({ events, students, results, setResults, houses }) {
 
       {!event ? <p className="muted">Add an event first.</p> : (
         <div className="card">
-          <h3>{event.name} — Year {year} {gender}
+          <h3>
+            {currentSheetNo && <span className="pill" style={{ background: '#e0e7ff', marginRight: 8 }}>Sheet {currentSheetNo}</span>}
+            {event.name} — Year {year} {gender}
             <span className="muted" style={{ fontWeight: 400 }}>
               {' '}· {event.scoring === 'lower' ? 'fastest wins' : 'furthest wins'} · enter in {event.unit}
               {event.scoring === 'lower' ? ' (or m:ss.s)' : ''}
@@ -962,6 +1026,7 @@ function SheetsTab({ events, students, results, houses }) {
   const studentsById = useMemo(() => {
     const m = {}; students.forEach(s => { m[s.id] = s; }); return m;
   }, [students]);
+  const sheetIndex = useMemo(() => buildSheetIndex(events), [events]);
 
   /*
    * One printed page per sheet. A year-level-and-gender division can run to 60
@@ -1004,7 +1069,7 @@ function SheetsTab({ events, students, results, houses }) {
   const divisionCount = new Set(sheets.map(s => s.event.id + s.year + s.gender)).size;
 
   const exportResultsCsv = () => {
-    const rows = [['Event', 'Year', 'Gender', 'Place', 'Student', 'House', 'Result', 'Unit']];
+    const rows = [['Sheet', 'Event', 'Year', 'Gender', 'Place', 'Student', 'House', 'Result', 'Unit']];
     events.forEach(ev => {
       const divisions = new Set();
       results.filter(r => r.eventId === ev.id).forEach(r => {
@@ -1014,7 +1079,8 @@ function SheetsTab({ events, students, results, houses }) {
       Array.from(divisions).sort().forEach(division => {
         rankFor(results, ev.id, division, ev.scoring, studentsById).forEach(r => {
           const st = studentsById[r.studentId];
-          rows.push([ev.name, st.yearLevel, st.gender, r.place, st.name, houseName(st.house), r.result, ev.unit]);
+          rows.push([sheetIndex.byKey[divKey(ev.id, division)] || '', ev.name, st.yearLevel, st.gender,
+            r.place, st.name, houseName(st.house), r.result, ev.unit]);
         });
       });
     });
@@ -1023,11 +1089,12 @@ function SheetsTab({ events, students, results, houses }) {
   };
 
   const exportSheetsCsv = () => {
-    const rows = [['Event', 'Year', 'Gender', 'Student', 'House', 'Result']];
+    const rows = [['Sheet', 'Event', 'Year', 'Gender', 'Student', 'House', 'Result']];
     sheets.forEach(sh => sh.rows.forEach(s => {
       if (!s) return; // write-in blanks have no data to export
       const hit = sh.ranked.find(r => r.studentId === s.id);
-      rows.push([sh.event.name, sh.year, sh.gender, s.name, houseName(s.house), hit ? hit.result : '']);
+      rows.push([sheetIndex.byKey[divKey(sh.event.id, sh.year + ' ' + sh.gender)] || '',
+        sh.event.name, sh.year, sh.gender, s.name, houseName(s.house), hit ? hit.result : '']);
     }));
     if (rows.length === 1) return alert('Nothing to export — check the filters.');
     download('athletics-event-sheets.csv', toCsv(rows), 'text/csv;charset=utf-8');
@@ -1072,9 +1139,11 @@ function SheetsTab({ events, students, results, houses }) {
           </label>
         </div>
         <p className="muted" style={{ marginTop: 0 }}>
-          Each sheet is one A4 page. A division with more students than fits carries on across
-          numbered sheets, so nothing ever runs off the bottom. Up to {MAX_ROWS_PER_A4} rows clear an
-          A4 page. The write-in rows are blank lines at the end for adding anyone not on the list.
+          Each sheet is one A4 page and carries a <strong>sheet number</strong> in the top corner —
+          type that into the Results tab to jump straight to the right list. A division with more
+          students than fits carries on across extra pages under the same sheet number, so nothing
+          runs off the bottom. Up to {MAX_ROWS_PER_A4} rows clear an A4 page. The write-in rows are
+          blank lines at the end for adding anyone not on the list.
         </p>
         <label style={{ fontSize: 14, display: 'block', marginBottom: 12 }}>
           <input type="checkbox" checked={withResults} onChange={e => setWithResults(e.target.checked)} />
@@ -1096,10 +1165,14 @@ function SheetsTab({ events, students, results, houses }) {
       {sheets.map((sh, i) => (
         <div className="sheet" key={sh.event.id + sh.year + sh.gender + i}>
           <div className="sheet-head">
-            <div>
+            <div className="sheet-no">
+              <div className="sheet-no-label">Sheet</div>
+              <div className="sheet-no-value">{sheetIndex.byKey[divKey(sh.event.id, sh.year + ' ' + sh.gender)]}</div>
+            </div>
+            <div style={{ flex: 1 }}>
               <div className="sheet-title">
                 {sh.event.name} — Year {sh.year} {sh.gender}
-                {sh.pageCount > 1 && <span className="muted"> · sheet {sh.page} of {sh.pageCount}</span>}
+                {sh.pageCount > 1 && <span className="muted"> · page {sh.page} of {sh.pageCount}</span>}
               </div>
               <div className="muted">
                 {sh.event.scoring === 'lower' ? 'Fastest wins' : 'Furthest / highest wins'} · record in {sh.event.unit}
