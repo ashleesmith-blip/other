@@ -21,10 +21,10 @@ to regenerate `index.html`.
 | Tab | What it does |
 | --- | --- |
 | **Events** | The standard program is pre-loaded — 100m, 200m, 800m, 1500m, 80m hurdles, long/triple/high jump, shot put, discus, 4x100m relay — each with the year levels it runs at and whether the winner is the fastest or the furthest. Add your own. |
-| **Houses** | House cards with student counts and live points (3/2/1 for the first three places in every event and division), plus a ranked bar chart. |
+| **Houses** | The overall tally — participation and placing points per house, ranked, with the breakdown and the points scheme. |
 | **Students** | The whole list, filterable by year, house and name. Every column is editable straight in the table — name, year, gender, house, homegroup and beep test. A hundred rows show at a time; search or filter to reach the rest. **Change a whole group at once** moves a homegroup, a year level, everyone currently shown by the filters, or everyone missing a year level — for rollover, or when a homegroup code didn't give the right year on import. |
 | **Import** | Paste four columns out of Excel — **Name, Gender, Homegroup, House** — or load a `.json`/`.csv`. Year level is read from the homegroup code (`I3P` → 3), houses named in the file are created if they don't exist, and re-importing skips anyone already on the list. Everything previews before it applies. There's a download button here to back the list up. |
-| **Results** | Type in a sheet number, or pick event + year + gender, then enter times down the list in the same order as the printed sheet. Placings rank themselves as you type, first three shaded. Handles `m:ss.s` for the 800m and 1500m. |
+| **Results** | Where the hardcopy sheets get entered — house points and results together, see below. |
 | **Event sheets** | Printable recording sheets — see below. |
 | **District** | The interesting one — see below. |
 
@@ -59,6 +59,25 @@ populated, so **load the class list before printing sheets**.
 - **Download these sheets as CSV** / **Download all results as CSV** for anything you'd rather do
   in Excel.
 
+## Entering the sheets — the Results tab
+
+Teachers hand in the paper; this is where it goes. Type the sheet number off the top of the sheet
+and you land on that event and division.
+
+**House points for this sheet** takes how many competed from **each house** — a count, not a list of
+names, because the sheet has the whole division on it but absences and non-starters mean only the
+marshal knows who actually ran. That is **1 point each**. **Fill from class list** sets the counts to
+the full division if everyone turned up, ready to adjust down.
+
+**Placings are not typed twice.** Enter the results down the list below — in the same house-then-name
+order as the paper — and the first four places score **4 / 3 / 2 / 1** on top automatically. The
+per-sheet table shows exactly what the sheet is worth per house so it can be checked against the
+paper before moving on. The scheme itself is editable on the Houses tab.
+
+**Checking every sheet is in.** The top of the tab tracks *n of 72 sheets entered* with a progress
+bar; **which ones?** lists every outstanding sheet by number and event, each with a button that
+opens it. When the last one lands it reads *all in ✓*.
+
 ## Picking the district team
 
 Every event and division sends its top finisher (configurable), but no student may run more than
@@ -72,11 +91,24 @@ moved** shows who was passed over and why.
 So a student who wins six events picks two, and the other four go to the runners-up automatically
 rather than being worked out by hand.
 
-## Privacy
+## Backups — read this one
 
-Everything is stored in one browser via `localStorage` — nothing is sent anywhere, and there is no
-server or login. That also means it isn't shared between devices, and clearing your browsing data
-erases it, so use the download button on the Import tab to keep a backup.
+Everything is stored in **one browser, on one address**, via `localStorage`. Nothing is sent
+anywhere and there is no server or login. That has consequences worth knowing before carnival day:
+
+- Clearing browsing data erases it.
+- It does not follow you to another computer, or to another browser on the same computer.
+- **A different URL is a different store.** Dragging the file onto Netlify Drop again creates a
+  *new* site with a *new* address, which starts empty — the old address still holds the data. To
+  update an existing site, use its own **Deploys** page rather than Netlify Drop.
+
+**Import → Backup and restore** downloads one file with everything in it — students, houses, events,
+results, participation counts and settings — and restores it on any machine. Take one at the end of
+every session. **Erase all data** offers a backup before it wipes.
+
+Two safeguards sit behind that: nothing is written to storage on page load, so a failed read can
+never overwrite good data with an empty one; and text that won't parse is kept under
+`<key>__unreadable` rather than discarded.
 
 Class lists are **not** committed to this repo (see `.gitignore`) and should not be. Use first name
 plus surname initial. A deployed Netlify URL is publicly reachable by anyone who has the link, so

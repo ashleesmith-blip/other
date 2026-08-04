@@ -1,10 +1,48 @@
-const { useState, useEffect, useMemo, useCallback } = React;
+const { useState, useEffect, useMemo, useCallback, useRef } = React;
 
 const store = (typeof window !== 'undefined' && window.storage) ? window.storage : localStorage;
-const load = (k, fallback) => {
-  try { const v = JSON.parse(store.getItem(k)); return (v === null || v === undefined) ? fallback : v; }
-  catch (e) { return fallback; }
-};
+
+const STORE_KEYS = ['ath_houses', 'ath_events', 'ath_students', 'ath_results',
+  'ath_prefs', 'ath_settings', 'ath_sheetmeta', 'ath_scoring'];
+
+/*
+ * Persisted state.
+ *
+ * Two rules here exist because a whole class list can otherwise disappear:
+ *
+ * 1. Never write on mount. The old code saved every key on first render, so if a
+ *    read ever came back empty the empty value was immediately written over the
+ *    good one — a transient failure became permanent deletion.
+ * 2. If stored text won't parse, keep it under `<key>__unreadable` instead of
+ *    discarding it, so it can be recovered by hand rather than being lost.
+ */
+function usePersistentState(key, fallback) {
+  const [value, setValue] = useState(() => {
+    let raw = null;
+    try { raw = store.getItem(key); } catch (e) { return fallback; }
+    if (raw === null || raw === undefined) return fallback;
+    try {
+      const parsed = JSON.parse(raw);
+      return (parsed === null || parsed === undefined) ? fallback : parsed;
+    } catch (e) {
+      try { store.setItem(key + '__unreadable', raw); } catch (e2) { /* nothing more to do */ }
+      return fallback;
+    }
+  });
+
+  const mounted = useRef(false);
+  useEffect(() => {
+    if (!mounted.current) { mounted.current = true; return; }
+    try {
+      store.setItem(key, JSON.stringify(value));
+    } catch (e) {
+      alert('Could not save — the browser refused to write to storage.\n\n' +
+        'Download a backup from the Import tab before closing this page.');
+    }
+  }, [key, value]);
+
+  return [value, setValue];
+}
 
 const YEARS = ['Prep', '1', '2', '3', '4', '5', '6'];
 
@@ -92,6 +130,54 @@ function buildSheetIndex(events, students) {
     });
   });
   return { byKey, byNumber, total: n };
+}
+
+/*
+ * House scoring: a point for every competitor, plus 4/3/2/1 for the first four
+ * places. Both halves are editable on the Houses tab.
+ *
+ * Participation is a count typed in per house rather than a headcount off the
+ * class list — the recording sheet lists the whole division, but absences and
+ * non-starters mean only the marshal knows who actually competed. Placings are
+ * not typed twice: they come from the results already entered for the division.
+ */
+const DEFAULT_SCORING = { participation: 1, places: [4, 3, 2, 1] };
+
+function tallyHousePoints(houses, students, sheetMeta, results, events, scoring) {
+  const byId = {};
+  students.forEach(s => { byId[s.id] = s; });
+
+  const tally = {};
+  houses.forEach(h => { tally[h.id] = { participants: 0, participation: 0, placing: 0, total: 0 }; });
+
+  Object.keys(sheetMeta || {}).forEach(key => {
+    const counts = (sheetMeta[key] || {}).counts || {};
+    Object.keys(counts).forEach(hid => {
+      const n = parseInt(counts[hid], 10) || 0;
+      if (!tally[hid] || n <= 0) return;
+      tally[hid].participants += n;
+      tally[hid].participation += n * scoring.participation;
+    });
+  });
+
+  events.forEach(ev => {
+    const divisions = new Set();
+    results.filter(r => r.eventId === ev.id).forEach(r => {
+      const st = byId[r.studentId];
+      if (st) divisions.add(divisionOf(st));
+    });
+    divisions.forEach(division => {
+      rankFor(results, ev.id, division, ev.scoring, byId).slice(0, scoring.places.length).forEach(r => {
+        const st = byId[r.studentId];
+        if (st && tally[st.house]) tally[st.house].placing += scoring.places[r.place - 1] || 0;
+      });
+    });
+  });
+
+  Object.keys(tally).forEach(hid => {
+    tally[hid].total = tally[hid].participation + tally[hid].placing;
+  });
+  return tally;
 }
 
 // Rank the results for one event+division. Returns [{studentId, raw, value, place}] best first.
@@ -290,7 +376,7 @@ function EventsTab({ events, setEvents }) {
   );
 }
 
-function HousesTab({ houses, setHouses, students, events, results }) {
+function HousesTab({ houses, setHouses, students, events, results, sheetMeta, scoring, setScoring }) {
   const [draft, setDraft] = useState({ name: '', colour: '#7c3aed' });
 
   const add = () => {
@@ -299,30 +385,13 @@ function HousesTab({ houses, setHouses, students, events, results }) {
     setDraft({ name: '', colour: '#7c3aed' });
   };
 
-  // 1st = 3pts, 2nd = 2, 3rd = 1, in every event+division.
-  const points = useMemo(() => {
-    const studentsById = {};
-    students.forEach(s => { studentsById[s.id] = s; });
-    const tally = {};
-    houses.forEach(h => { tally[h.id] = 0; });
-    events.forEach(ev => {
-      const divisions = new Set();
-      results.filter(r => r.eventId === ev.id).forEach(r => {
-        const st = studentsById[r.studentId];
-        if (st) divisions.add(divisionOf(st));
-      });
-      divisions.forEach(division => {
-        rankFor(results, ev.id, division, ev.scoring, studentsById).slice(0, 3).forEach(r => {
-          const st = studentsById[r.studentId];
-          const pts = [3, 2, 1][r.place - 1];
-          if (st && tally[st.house] !== undefined) tally[st.house] += pts;
-        });
-      });
-    });
-    return tally;
-  }, [houses, students, events, results]);
+  const points = useMemo(
+    () => tallyHousePoints(houses, students, sheetMeta, results, events, scoring),
+    [houses, students, sheetMeta, results, events, scoring]
+  );
+  const totalFor = (id) => (points[id] || {}).total || 0;
 
-  const leader = Math.max(1, ...houses.map(h => points[h.id] || 0));
+  const leader = Math.max(1, ...houses.map(h => totalFor(h.id)));
 
   return (
     <div>
@@ -334,24 +403,66 @@ function HousesTab({ houses, setHouses, students, events, results }) {
             <div style={{ fontSize: 13, marginTop: 6, opacity: .95 }}>
               {students.filter(s => s.house === h.id).length} students
             </div>
-            <div style={{ fontSize: 26, fontWeight: 800, marginTop: 8 }}>{points[h.id] || 0}</div>
+            <div style={{ fontSize: 26, fontWeight: 800, marginTop: 8 }}>{totalFor(h.id)}</div>
             <div style={{ fontSize: 11, opacity: .9, textTransform: 'uppercase', letterSpacing: '.06em' }}>points</div>
           </div>
         ))}
       </div>
 
       <div className="card">
-        <h3>House points (3 / 2 / 1 for first three places in every event and division)</h3>
-        {houses.slice().sort((a, b) => (points[b.id] || 0) - (points[a.id] || 0)).map(h => (
-          <div key={h.id} style={{ marginBottom: 10 }}>
+        <h3>Overall tally</h3>
+        <p className="muted" style={{ marginTop: 0 }}>
+          {scoring.participation} point per competitor, plus {scoring.places.join(' / ')} for
+          1st / 2nd / 3rd / 4th. Participation counts and placings both come off the Results tab.
+        </p>
+        {houses.slice().sort((a, b) => totalFor(b.id) - totalFor(a.id)).map(h => (
+          <div key={h.id} style={{ marginBottom: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 3 }}>
-              <strong>{h.name}</strong><span>{points[h.id] || 0}</span>
+              <strong>{h.name}</strong>
+              <span className="muted">
+                {(points[h.id] || {}).participation || 0} participation + {(points[h.id] || {}).placing || 0} placings
+                {' '}= <strong style={{ color: '#1a2027' }}>{totalFor(h.id)}</strong>
+              </span>
             </div>
             <div style={{ background: '#eef1f4', borderRadius: 999, height: 10 }}>
-              <div style={{ background: h.colour, width: ((points[h.id] || 0) / leader * 100) + '%', height: 10, borderRadius: 999 }} />
+              <div style={{ background: h.colour, width: (totalFor(h.id) / leader * 100) + '%', height: 10, borderRadius: 999 }} />
             </div>
           </div>
         ))}
+        <table style={{ marginTop: 16 }}>
+          <thead><tr><th>House</th><th>Competitors</th><th>Participation</th><th>Placings</th><th>Total</th></tr></thead>
+          <tbody>
+            {houses.slice().sort((a, b) => totalFor(b.id) - totalFor(a.id)).map(h => (
+              <tr key={h.id}>
+                <td><strong>{h.name}</strong></td>
+                <td>{(points[h.id] || {}).participants || 0}</td>
+                <td>{(points[h.id] || {}).participation || 0}</td>
+                <td>{(points[h.id] || {}).placing || 0}</td>
+                <td><strong>{totalFor(h.id)}</strong></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="card noprint">
+        <h3>Points scheme</h3>
+        <div className="row">
+          <label className="fld">Per competitor
+            <input type="number" min="0" value={scoring.participation}
+              onChange={e => setScoring({ ...scoring, participation: parseInt(e.target.value, 10) || 0 })} />
+          </label>
+          {['1st', '2nd', '3rd', '4th'].map((label, i) => (
+            <label className="fld" key={label}>{label}
+              <input type="number" min="0" value={scoring.places[i]}
+                onChange={e => {
+                  const places = scoring.places.slice();
+                  places[i] = parseInt(e.target.value, 10) || 0;
+                  setScoring({ ...scoring, places });
+                }} />
+            </label>
+          ))}
+        </div>
       </div>
 
       <div className="card">
@@ -614,7 +725,7 @@ function StudentsTab({ students, setStudents, houses }) {
   );
 }
 
-function ImportTab({ students, setStudents, houses, setHouses }) {
+function ImportTab({ students, setStudents, houses, setHouses, onBackup, onRestore }) {
   const [text, setText] = useState('');
   const [preview, setPreview] = useState(null);
 
@@ -763,28 +874,40 @@ function ImportTab({ students, setStudents, houses, setHouses }) {
       </div>
 
       <div className="card">
-        <h3>Back up your data</h3>
-        <p className="muted" style={{ marginTop: 0 }}>
-          Everything lives in this browser only. Download a copy before clearing your browsing data or moving to another device.
+        <h3>Backup and restore</h3>
+        <div className="warn">
+          Everything is kept in <strong>this browser, on this address</strong> and nowhere else. It is
+          lost if the browsing data is cleared, and it does not follow you to another computer — or to
+          a different URL, so a re-drag onto Netlify Drop that creates a <em>new</em> site starts
+          empty. Take a backup at the end of every session.
+        </div>
+        <div className="row">
+          <button className="btn" style={{ flex: '0 0 auto' }} onClick={onBackup}>
+            Download a full backup
+          </button>
+          <label className="fld" style={{ flex: '1 1 240px' }}>Restore from a backup
+            <input type="file" accept=".json" onChange={e => {
+              if (e.target.files[0]) onRestore(e.target.files[0]);
+              e.target.value = '';
+            }} />
+          </label>
+        </div>
+        <p className="muted" style={{ marginBottom: 0 }}>
+          The backup holds students, houses, events, results, participation counts and settings —
+          everything needed to pick up where you left off.
         </p>
-        <button className="btn-ghost" onClick={() => {
-          const blob = new Blob([JSON.stringify(students, null, 2)], { type: 'application/json' });
-          const a = document.createElement('a');
-          a.href = URL.createObjectURL(blob);
-          a.download = 'athletics-students.json';
-          a.click();
-        }}>Download student list</button>
       </div>
     </div>
   );
 }
 
-function ResultsTab({ events, students, results, setResults, houses }) {
+function ResultsTab({ events, students, results, setResults, houses, sheetMeta, setSheetMeta, scoring }) {
   const [eventId, setEventId] = useState(events.length ? events[0].id : '');
   const [year, setYear] = useState('5');
   const [gender, setGender] = useState('Female');
 
   const [sheetNo, setSheetNo] = useState('');
+  const [showOutstanding, setShowOutstanding] = useState(false);
 
   const event = events.find(e => e.id === eventId);
   const division = year + ' ' + gender;
@@ -793,6 +916,22 @@ function ResultsTab({ events, students, results, setResults, houses }) {
   }, [students]);
   const sheetIndex = useMemo(() => buildSheetIndex(events, students), [events, students]);
   const currentSheetNo = sheetIndex.byKey[divKey(eventId, division)];
+  const metaKey = divKey(eventId, division);
+  const meta = sheetMeta[metaKey] || { counts: {}, received: false };
+
+  // Touching anything on a sheet means the paper is in hand.
+  const writeMeta = (changes) => setSheetMeta({ ...sheetMeta, [metaKey]: { ...meta, received: true, ...changes } });
+  const setCount = (houseId, v) => writeMeta({ counts: { ...meta.counts, [houseId]: v } });
+
+  const entered = Object.keys(sheetMeta).filter(k => sheetMeta[k] && sheetMeta[k].received);
+  const outstanding = [];
+  for (let i = 1; i <= sheetIndex.total; i++) {
+    const t = sheetIndex.byNumber[i];
+    const k = divKey(t.eventId, t.year + ' ' + t.gender);
+    if (!sheetMeta[k] || !sheetMeta[k].received) {
+      outstanding.push({ no: i, label: t.event.name + ' — Year ' + t.year + ' ' + t.gender });
+    }
+  }
 
   // Typing the number off a returned recording sheet sets all three selects.
   const goToSheet = (value) => {
@@ -815,6 +954,13 @@ function ResultsTab({ events, students, results, setResults, houses }) {
     .filter(s => s.yearLevel === year && s.gender === gender)
     .sort((a, b) => (houseName(a.house) + a.name).localeCompare(houseName(b.house) + b.name));
   const ranked = event ? rankFor(results, event.id, division, event.scoring, studentsById) : [];
+
+  // What this one sheet contributes, so it can be checked against the paper.
+  const sheetPoints = useMemo(
+    () => tallyHousePoints(houses, students, { [metaKey]: meta },
+      results.filter(r => r.eventId === eventId), event ? [event] : [], scoring),
+    [houses, students, metaKey, meta, results, eventId, event, scoring]
+  );
   const resultFor = (sid) => {
     const r = results.find(x => x.eventId === eventId && x.studentId === sid);
     return r ? r.result : '';
@@ -833,6 +979,47 @@ function ResultsTab({ events, students, results, setResults, houses }) {
   return (
     <div>
       <h2>Results</h2>
+
+      {sheetIndex.total > 0 && (
+        <div className="card noprint">
+          <div className="row" style={{ alignItems: 'center' }}>
+            <div style={{ flex: '1 1 auto', fontSize: 15 }}>
+              <strong>{entered.length}</strong> of {sheetIndex.total} sheets entered
+              {outstanding.length > 0
+                ? <span className="muted"> · {outstanding.length} still to come in</span>
+                : <span style={{ color: '#15803d', fontWeight: 600 }}> · all in ✓</span>}
+            </div>
+            {outstanding.length > 0 && (
+              <button className="btn-ghost btn-sm" style={{ flex: '0 0 auto' }}
+                onClick={() => setShowOutstanding(!showOutstanding)}>
+                {showOutstanding ? 'hide' : 'which ones?'}
+              </button>
+            )}
+          </div>
+          <div style={{ background: '#eef1f4', borderRadius: 999, height: 10, marginTop: 10 }}>
+            <div style={{ background: '#2563eb', height: 10, borderRadius: 999,
+              width: (entered.length / sheetIndex.total * 100) + '%' }} />
+          </div>
+          {showOutstanding && (
+            <div className="scroll" style={{ marginTop: 12 }}>
+              <table>
+                <thead><tr><th style={{ width: 70 }}>Sheet</th><th>Event and division</th><th style={{ width: 80 }}></th></tr></thead>
+                <tbody>
+                  {outstanding.map(o => (
+                    <tr key={o.no}>
+                      <td><strong>{o.no}</strong></td>
+                      <td>{o.label}</td>
+                      <td><button className="btn-ghost btn-sm"
+                        onClick={() => { goToSheet(String(o.no)); setShowOutstanding(false); }}>Open</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="card noprint">
         <div className="row" style={{ alignItems: 'flex-start' }}>
           <label className="fld" style={{ flex: '0 0 150px' }}>Sheet number
@@ -869,6 +1056,53 @@ function ResultsTab({ events, students, results, setResults, houses }) {
           <div className="warn">{event.name} is not normally run at Year {year}. You can still record it.</div>
         )}
       </div>
+
+      {event && inDivision.length > 0 && (
+        <div className="card noprint">
+          <h3>House points for this sheet</h3>
+          <p className="muted" style={{ marginTop: 0 }}>
+            {scoring.participation} point per competitor. Count them off the sheet — the class list
+            has {inDivision.length} in this division, but only those who actually competed score.
+            Placings are worth {scoring.places.join(' / ')} on top, and come from the results below.
+          </p>
+          <div className="row">
+            {houses.map(h => (
+              <label className="fld" key={h.id}>
+                <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 3, background: h.colour, marginRight: 6 }} />
+                {h.name}
+                <input type="number" min="0" placeholder="0"
+                  value={meta.counts[h.id] === undefined ? '' : meta.counts[h.id]}
+                  onChange={e => setCount(h.id, e.target.value)} />
+              </label>
+            ))}
+            <button className="btn-ghost" style={{ flex: '0 0 auto' }}
+              onClick={() => {
+                const counts = {};
+                houses.forEach(h => { counts[h.id] = inDivision.filter(s2 => s2.house === h.id).length; });
+                writeMeta({ counts });
+              }}>Fill from class list</button>
+          </div>
+          <table style={{ marginTop: 6 }}>
+            <thead><tr><th>House</th><th>Competed</th><th>Participation</th><th>Placings</th><th>Total</th></tr></thead>
+            <tbody>
+              {houses.map(h => (
+                <tr key={h.id}>
+                  <td><strong>{h.name}</strong></td>
+                  <td>{sheetPoints[h.id].participants}</td>
+                  <td>{sheetPoints[h.id].participation}</td>
+                  <td>{sheetPoints[h.id].placing}</td>
+                  <td><strong>{sheetPoints[h.id].total}</strong></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <label style={{ fontSize: 14, display: 'block', marginTop: 12 }}>
+            <input type="checkbox" checked={!!meta.received}
+              onChange={e => setSheetMeta({ ...sheetMeta, [metaKey]: { ...meta, received: e.target.checked } })} />
+            {' '}Sheet handed in
+          </label>
+        </div>
+      )}
 
       {!event ? <p className="muted">Add an event first.</p> : (
         <div className="card">
@@ -1298,19 +1532,45 @@ function SheetsTab({ events, students, results, houses }) {
 
 function App() {
   const [tab, setTab] = useState('events');
-  const [houses, setHouses] = useState(() => load('ath_houses', DEFAULT_HOUSES));
-  const [events, setEvents] = useState(() => load('ath_events', DEFAULT_EVENTS));
-  const [students, setStudents] = useState(() => load('ath_students', []));
-  const [results, setResults] = useState(() => load('ath_results', []));
-  const [prefs, setPrefs] = useState(() => load('ath_prefs', {}));
-  const [settings, setSettings] = useState(() => load('ath_settings', { maxPerStudent: 2, spotsPerEvent: 1 }));
+  const [houses, setHouses] = usePersistentState('ath_houses', DEFAULT_HOUSES);
+  const [events, setEvents] = usePersistentState('ath_events', DEFAULT_EVENTS);
+  const [students, setStudents] = usePersistentState('ath_students', []);
+  const [results, setResults] = usePersistentState('ath_results', []);
+  const [prefs, setPrefs] = usePersistentState('ath_prefs', {});
+  const [settings, setSettings] = usePersistentState('ath_settings', { maxPerStudent: 2, spotsPerEvent: 1 });
+  const [sheetMeta, setSheetMeta] = usePersistentState('ath_sheetmeta', {});
+  const [scoring, setScoring] = usePersistentState('ath_scoring', DEFAULT_SCORING);
 
-  useEffect(() => { store.setItem('ath_houses', JSON.stringify(houses)); }, [houses]);
-  useEffect(() => { store.setItem('ath_events', JSON.stringify(events)); }, [events]);
-  useEffect(() => { store.setItem('ath_students', JSON.stringify(students)); }, [students]);
-  useEffect(() => { store.setItem('ath_results', JSON.stringify(results)); }, [results]);
-  useEffect(() => { store.setItem('ath_prefs', JSON.stringify(prefs)); }, [prefs]);
-  useEffect(() => { store.setItem('ath_settings', JSON.stringify(settings)); }, [settings]);
+  // One file with everything in it — the only defence against a browser that
+  // clears its storage, or against opening the tool on a different URL.
+  const downloadBackup = () => {
+    const data = {};
+    STORE_KEYS.forEach(k => { try { data[k] = JSON.parse(store.getItem(k)); } catch (e) { data[k] = null; } });
+    download('athletics-backup-' + new Date().toISOString().slice(0, 10) + '.json',
+      JSON.stringify({ format: 'athletics-manager', version: 1, savedAt: new Date().toISOString(), data }, null, 2),
+      'application/json');
+  };
+
+  const restoreBackup = (file) => {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      let parsed;
+      try { parsed = JSON.parse(String(ev.target.result)); }
+      catch (err) { return alert('That file could not be read: ' + err.message); }
+      if (!parsed || parsed.format !== 'athletics-manager' || !parsed.data) {
+        return alert('That is not a backup from this tool.');
+      }
+      const n = (parsed.data.ath_students || []).length;
+      if (!confirm('Restore ' + n + ' students and everything else from ' +
+        (parsed.savedAt || 'this backup').slice(0, 10) + '?\n\nThis replaces what is in the browser now.')) return;
+      STORE_KEYS.forEach(k => {
+        if (parsed.data[k] === null || parsed.data[k] === undefined) store.removeItem(k);
+        else store.setItem(k, JSON.stringify(parsed.data[k]));
+      });
+      location.reload();
+    };
+    reader.readAsText(file);
+  };
 
   const TABS = [
     ['events', 'Events'], ['houses', 'Houses'], ['students', 'Students'],
@@ -1325,10 +1585,10 @@ function App() {
           <div className="muted">House athletics, records and the district team · P–6</div>
         </div>
         <button className="btn-ghost noprint" onClick={() => {
-          if (confirm('Erase every event, student and result stored in this browser?')) {
-            ['ath_houses','ath_events','ath_students','ath_results','ath_prefs','ath_settings'].forEach(k => store.removeItem(k));
-            location.reload();
-          }
+          if (!confirm('Erase every event, student and result stored in this browser?')) return;
+          if (confirm('Download a backup first? Strongly recommended — this cannot be undone.')) downloadBackup();
+          STORE_KEYS.forEach(k => store.removeItem(k));
+          location.reload();
         }}>Erase all data</button>
       </div>
 
@@ -1339,10 +1599,12 @@ function App() {
       </div>
 
       {tab === 'events'   && <EventsTab   events={events} setEvents={setEvents} />}
-      {tab === 'houses'   && <HousesTab   houses={houses} setHouses={setHouses} students={students} events={events} results={results} />}
+      {tab === 'houses'   && <HousesTab   houses={houses} setHouses={setHouses} students={students} events={events} results={results} sheetMeta={sheetMeta} scoring={scoring} setScoring={setScoring} />}
       {tab === 'students' && <StudentsTab students={students} setStudents={setStudents} houses={houses} />}
-      {tab === 'import'   && <ImportTab   students={students} setStudents={setStudents} houses={houses} setHouses={setHouses} />}
-      {tab === 'results'  && <ResultsTab  events={events} students={students} results={results} setResults={setResults} houses={houses} />}
+      {tab === 'import'   && <ImportTab   students={students} setStudents={setStudents} houses={houses} setHouses={setHouses}
+                               onBackup={downloadBackup} onRestore={restoreBackup} />}
+      {tab === 'results'  && <ResultsTab  events={events} students={students} results={results} setResults={setResults} houses={houses}
+                               sheetMeta={sheetMeta} setSheetMeta={setSheetMeta} scoring={scoring} />}
       {tab === 'sheets'   && <SheetsTab   events={events} students={students} results={results} houses={houses} />}
       {tab === 'district' && <DistrictTab events={events} students={students} results={results} prefs={prefs} setPrefs={setPrefs} settings={settings} setSettings={setSettings} />}
     </div>
