@@ -1604,6 +1604,22 @@ function App() {
   const [sheetMeta, setSheetMeta] = usePersistentState('ath_sheetmeta', {});
   const [scoring, setScoring] = usePersistentState('ath_scoring', DEFAULT_SCORING);
 
+  // Supabase, when it is switched on. Everything still renders from the local
+  // state above; this only mirrors it out and brings other people's edits in.
+  const sync = useSupabaseSync(
+    { houses, events, students, results, sheetMeta, scoring, settings, prefs },
+    useCallback((remote) => {
+      if (remote.houses && remote.houses.length) setHouses(remote.houses);
+      if (remote.events && remote.events.length) setEvents(remote.events);
+      setStudents(remote.students || []);
+      setResults(remote.results || []);
+      setSheetMeta(remote.sheetMeta || {});
+      if (remote.scoring) setScoring(remote.scoring);
+      if (remote.settings) setSettings(remote.settings);
+      if (remote.prefs) setPrefs(remote.prefs);
+    }, [])
+  );
+
   // One file with everything in it — the only defence against a browser that
   // clears its storage, or against opening the tool on a different URL.
   const downloadBackup = () => {
@@ -1637,7 +1653,7 @@ function App() {
 
   const TABS = [
     ['events', 'Events'], ['houses', 'Houses'], ['students', 'Students'],
-    ['import', 'Import'], ['results', 'Results'], ['sheets', 'Event sheets'], ['district', 'District'],
+    ['import', 'Import'], ['results', 'Results'], ['sheets', 'Event sheets'], ['district', 'District'], ['sync', 'Sync'],
   ];
 
   return (
@@ -1669,6 +1685,7 @@ function App() {
       {tab === 'results'  && <ResultsTab  events={events} students={students} results={results} setResults={setResults} houses={houses}
                                sheetMeta={sheetMeta} setSheetMeta={setSheetMeta} scoring={scoring} />}
       {tab === 'sheets'   && <SheetsTab   events={events} students={students} results={results} houses={houses} />}
+      {tab === 'sync'     && <SyncTab     sync={sync} students={students} results={results} sheetMeta={sheetMeta} />}
       {tab === 'district' && <DistrictTab events={events} students={students} results={results} prefs={prefs} setPrefs={setPrefs} settings={settings} setSettings={setSettings} sheetMeta={sheetMeta} />}
     </div>
   );

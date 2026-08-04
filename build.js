@@ -14,7 +14,7 @@ const read = (p) => fs.readFileSync(path.join(__dirname, p), 'utf8');
 const react = read('node_modules/react/umd/react.production.min.js');
 const reactDom = read('node_modules/react-dom/umd/react-dom.production.min.js');
 const css = read('src/styles.css');
-const jsx = read('src/athletics.jsx');
+const jsx = read('src/sync.jsx') + '\n' + read('src/athletics.jsx');
 
 const { code } = babel.transformSync(jsx, {
   presets: [[require.resolve('@babel/preset-react'), { runtime: 'classic' }]],

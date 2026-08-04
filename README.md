@@ -27,6 +27,7 @@ to regenerate `index.html`.
 | **Results** | Where the hardcopy sheets get entered — house points and results together, see below. |
 | **Event sheets** | Printable recording sheets — see below. |
 | **District** | The interesting one — see below. |
+| **Sync** | Optional Supabase backend, so the data is not trapped in one browser — see below. |
 
 ## Event sheets
 
@@ -94,10 +95,44 @@ moved** shows who was passed over and why.
 So a student who wins six events picks two, and the other four go to the runners-up automatically
 rather than being worked out by hand.
 
+## Sync (Supabase)
+
+Optional. Without it the tool is browser-only, which is fine for one person but means the data lives
+in exactly one place. Turning it on gives you a shared copy that survives a cleared browser and lets
+a second scoring desk work at the same time.
+
+**Setting it up**
+
+1. Create a project at [supabase.com](https://supabase.com), region **Sydney (ap-southeast-2)**.
+2. **SQL Editor** → paste in [`supabase.sql`](supabase.sql) → Run. Safe to re-run.
+3. **Settings → API** → copy the **Project URL** and the **anon / publishable** key into the Sync tab.
+   Never paste the `service_role` key — it ends up in the page.
+4. Press **Upload this browser to Supabase** once, from the machine that has the data.
+5. On every other device, paste the same two values and press **Connect and pull**.
+
+**How it behaves**
+
+- The browser stays the working copy. Everything renders locally, so the tool keeps going on an oval
+  with no signal and catches up when it comes back.
+- Edits go up about a second after you stop typing, **row by row**. Two people entering different
+  sheets never overwrite each other.
+- Other people's changes arrive within about ten seconds, and only when you have nothing unsent, so
+  a pull cannot land on top of your work.
+- For the same row, last save wins.
+
+It uses the PostgREST API over `fetch` rather than bundling `supabase-js`, so `index.html` stays
+self-contained and the only host it ever contacts is your own project.
+
+**Who can read it.** The schema ships with row-level security on and policies that grant the `anon`
+role full read and write — the no-login model. Anyone with the site URL and the key in it can read
+and change every row. Mitigate by putting the site behind Netlify's password protection (Site
+settings → Access & security). To tighten properly later, change `to anon` to `to authenticated` in
+the policies at the bottom of `supabase.sql` and add Supabase Auth; no schema change is needed.
+
 ## Backups — read this one
 
-Everything is stored in **one browser, on one address**, via `localStorage`. Nothing is sent
-anywhere and there is no server or login. That has consequences worth knowing before carnival day:
+With sync off, everything is stored in **one browser, on one address**, via `localStorage`, and
+nothing is sent anywhere. That has consequences worth knowing before carnival day:
 
 - Clearing browsing data erases it.
 - It does not follow you to another computer, or to another browser on the same computer.
