@@ -6,3 +6,5 @@ students_import.*
 students_paste.*
 *-students.json
 athletics-students.json
+athletics-restore.json
+athletics-backup-*.json
