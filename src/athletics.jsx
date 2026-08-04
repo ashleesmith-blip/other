@@ -143,6 +143,38 @@ function buildSheetIndex(events, students) {
  */
 const DEFAULT_SCORING = { participation: 1, places: [4, 3, 2, 1] };
 
+/*
+ * Who placed 1st..4th in one event and division.
+ *
+ * The scorer normally names them straight off the sheet, which is all the paper
+ * carries. Where nobody has been named, fall back to ranking whatever results
+ * have been typed — so either way of working scores the same.
+ */
+function placingsFor(sheetMeta, results, event, division, byId, count) {
+  const meta = (sheetMeta || {})[divKey(event.id, division)];
+  const named = meta && (meta.places || [])
+    .map((sid, i) => (sid && byId[sid]) ? { studentId: sid, place: i + 1 } : null)
+    .filter(Boolean);
+  if (named && named.length) return named.slice(0, count);
+  return rankFor(results, event.id, division, event.scoring, byId).slice(0, count);
+}
+
+// Divisions of this event that anyone has scored, by either route.
+function divisionsScored(sheetMeta, results, event, byId) {
+  const divisions = new Set();
+  results.filter(r => r.eventId === event.id).forEach(r => {
+    const st = byId[r.studentId];
+    if (st) divisions.add(divisionOf(st));
+  });
+  Object.keys(sheetMeta || {}).forEach(k => {
+    const cut = k.indexOf('::');
+    if (k.slice(0, cut) === event.id && ((sheetMeta[k] || {}).places || []).some(Boolean)) {
+      divisions.add(k.slice(cut + 2));
+    }
+  });
+  return divisions;
+}
+
 function tallyHousePoints(houses, students, sheetMeta, results, events, scoring) {
   const byId = {};
   students.forEach(s => { byId[s.id] = s; });
@@ -161,13 +193,8 @@ function tallyHousePoints(houses, students, sheetMeta, results, events, scoring)
   });
 
   events.forEach(ev => {
-    const divisions = new Set();
-    results.filter(r => r.eventId === ev.id).forEach(r => {
-      const st = byId[r.studentId];
-      if (st) divisions.add(divisionOf(st));
-    });
-    divisions.forEach(division => {
-      rankFor(results, ev.id, division, ev.scoring, byId).slice(0, scoring.places.length).forEach(r => {
+    divisionsScored(sheetMeta, results, ev, byId).forEach(division => {
+      placingsFor(sheetMeta, results, ev, division, byId, scoring.places.length).forEach(r => {
         const st = byId[r.studentId];
         if (st && tally[st.house]) tally[st.house].placing += scoring.places[r.place - 1] || 0;
       });
@@ -200,25 +227,26 @@ function rankFor(results, eventId, division, scoring, studentsById) {
  * be over the cap themselves. We loop until nothing changes, recording each pass so
  * you can see how the spots cascaded.
  */
-function allocateDistrict(events, results, students, prefs, opts) {
+function allocateDistrict(events, results, students, prefs, opts, sheetMeta) {
   const maxPerStudent = opts.maxPerStudent;
   const spotsPerEvent = opts.spotsPerEvent;
   const studentsById = {};
   students.forEach(s => { studentsById[s.id] = s; });
 
-  // Every event+division that actually has results.
+  // Every event+division anyone has scored, by named placings or typed results.
   const contests = [];
   events.forEach(ev => {
-    const divisions = new Set();
-    results.filter(r => r.eventId === ev.id).forEach(r => {
-      const st = studentsById[r.studentId];
-      if (st) divisions.add(divisionOf(st));
-    });
-    divisions.forEach(division => {
+    divisionsScored(sheetMeta, results, ev, studentsById).forEach(division => {
+      const named = (sheetMeta || {})[divKey(ev.id, division)];
+      const explicit = named && (named.places || [])
+        .map((sid, i) => (sid && studentsById[sid]) ? { studentId: sid, place: i + 1 } : null)
+        .filter(Boolean);
       contests.push({
         event: ev,
         division,
-        ranked: rankFor(results, ev.id, division, ev.scoring, studentsById),
+        ranked: (explicit && explicit.length)
+          ? explicit
+          : rankFor(results, ev.id, division, ev.scoring, studentsById),
       });
     });
   });
@@ -917,11 +945,18 @@ function ResultsTab({ events, students, results, setResults, houses, sheetMeta, 
   const sheetIndex = useMemo(() => buildSheetIndex(events, students), [events, students]);
   const currentSheetNo = sheetIndex.byKey[divKey(eventId, division)];
   const metaKey = divKey(eventId, division);
-  const meta = sheetMeta[metaKey] || { counts: {}, received: false };
+  const meta = sheetMeta[metaKey] || { counts: {}, places: ['', '', '', ''], received: false };
 
   // Touching anything on a sheet means the paper is in hand.
   const writeMeta = (changes) => setSheetMeta({ ...sheetMeta, [metaKey]: { ...meta, received: true, ...changes } });
   const setCount = (houseId, v) => writeMeta({ counts: { ...meta.counts, [houseId]: v } });
+  const setPlace = (i, studentId) => {
+    const places = (meta.places || ['', '', '', '']).slice();
+    places[i] = studentId;
+    writeMeta({ places });
+  };
+  const named = (meta.places || []).filter(Boolean);
+  const duplicatePlace = named.length !== new Set(named).size;
 
   const entered = Object.keys(sheetMeta).filter(k => sheetMeta[k] && sheetMeta[k].received);
   const outstanding = [];
@@ -955,12 +990,19 @@ function ResultsTab({ events, students, results, setResults, houses, sheetMeta, 
     .sort((a, b) => (houseName(a.house) + a.name).localeCompare(houseName(b.house) + b.name));
   const ranked = event ? rankFor(results, event.id, division, event.scoring, studentsById) : [];
 
-  // What this one sheet contributes, so it can be checked against the paper.
-  const sheetPoints = useMemo(
-    () => tallyHousePoints(houses, students, { [metaKey]: meta },
-      results.filter(r => r.eventId === eventId), event ? [event] : [], scoring),
-    [houses, students, metaKey, meta, results, eventId, event, scoring]
-  );
+  /*
+   * What this one sheet contributes, so it can be checked against the paper.
+   * The results have to be narrowed to this division as well as this event —
+   * filtering on the event alone pulled the other division's placings in, so
+   * the girls' sheet showed the boys' points too.
+   */
+  const sheetPoints = useMemo(() => {
+    const here = results.filter(r => {
+      const st = studentsById[r.studentId];
+      return r.eventId === eventId && st && divisionOf(st) === division;
+    });
+    return tallyHousePoints(houses, students, { [metaKey]: meta }, here, event ? [event] : [], scoring);
+  }, [houses, students, studentsById, metaKey, meta, results, eventId, division, event, scoring]);
   const resultFor = (sid) => {
     const r = results.find(x => x.eventId === eventId && x.studentId === sid);
     return r ? r.result : '';
@@ -1063,7 +1105,7 @@ function ResultsTab({ events, students, results, setResults, houses, sheetMeta, 
           <p className="muted" style={{ marginTop: 0 }}>
             {scoring.participation} point per competitor. Count them off the sheet — the class list
             has {inDivision.length} in this division, but only those who actually competed score.
-            Placings are worth {scoring.places.join(' / ')} on top, and come from the results below.
+            Placings are worth {scoring.places.join(' / ')} on top.
           </p>
           <div className="row">
             {houses.map(h => (
@@ -1082,6 +1124,27 @@ function ResultsTab({ events, students, results, setResults, houses, sheetMeta, 
                 writeMeta({ counts });
               }}>Fill from class list</button>
           </div>
+
+          <h3 style={{ marginTop: 18 }}>Placings</h3>
+          <p className="muted" style={{ marginTop: 0 }}>
+            Name them off the sheet. Leave these blank and the places will be worked out from any
+            results typed in below instead — either way scores the same.
+          </p>
+          {duplicatePlace && <div className="warn">The same student is down for more than one place.</div>}
+          <div className="row">
+            {['1st', '2nd', '3rd', '4th'].map((label, i) => (
+              <label className="fld" key={label}>
+                {label} <span className="muted">({scoring.places[i]} pts)</span>
+                <select value={(meta.places || [])[i] || ''} onChange={e => setPlace(i, e.target.value)}>
+                  <option value="">—</option>
+                  {inDivision.map(st => (
+                    <option key={st.id} value={st.id}>{st.name} · {houseName(st.house)}</option>
+                  ))}
+                </select>
+              </label>
+            ))}
+          </div>
+
           <table style={{ marginTop: 6 }}>
             <thead><tr><th>House</th><th>Competed</th><th>Participation</th><th>Placings</th><th>Total</th></tr></thead>
             <tbody>
@@ -1146,15 +1209,15 @@ function ResultsTab({ events, students, results, setResults, houses, sheetMeta, 
   );
 }
 
-function DistrictTab({ events, students, results, prefs, setPrefs, settings, setSettings }) {
+function DistrictTab({ events, students, results, prefs, setPrefs, settings, setSettings, sheetMeta }) {
   const [expanded, setExpanded] = useState(null);
   const studentsById = useMemo(() => {
     const m = {}; students.forEach(s => { m[s.id] = s; }); return m;
   }, [students]);
 
   const alloc = useMemo(
-    () => allocateDistrict(events, results, students, prefs, settings),
-    [events, results, students, prefs, settings]
+    () => allocateDistrict(events, results, students, prefs, settings, sheetMeta),
+    [events, results, students, prefs, settings, sheetMeta]
   );
 
   const eventName = (id) => (events.find(e => e.id === id) || {}).name || '?';
@@ -1606,7 +1669,7 @@ function App() {
       {tab === 'results'  && <ResultsTab  events={events} students={students} results={results} setResults={setResults} houses={houses}
                                sheetMeta={sheetMeta} setSheetMeta={setSheetMeta} scoring={scoring} />}
       {tab === 'sheets'   && <SheetsTab   events={events} students={students} results={results} houses={houses} />}
-      {tab === 'district' && <DistrictTab events={events} students={students} results={results} prefs={prefs} setPrefs={setPrefs} settings={settings} setSettings={setSettings} />}
+      {tab === 'district' && <DistrictTab events={events} students={students} results={results} prefs={prefs} setPrefs={setPrefs} settings={settings} setSettings={setSettings} sheetMeta={sheetMeta} />}
     </div>
   );
 }
