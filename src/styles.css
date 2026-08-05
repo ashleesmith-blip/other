@@ -84,3 +84,6 @@
   th { background: #f0f2f4 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   @page { margin: 14mm; }
 }
+
+/* Place column on the results sheet — narrow, so a 1-4 reads at a glance. */
+.placebox { width: 56px; text-align: center; font-weight: 700; }

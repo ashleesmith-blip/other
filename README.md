@@ -70,10 +70,14 @@ names, because the sheet has the whole division on it but absences and non-start
 marshal knows who actually ran. That is **1 point each**. **Fill from class list** sets the counts to
 the full division if everyone turned up, ready to adjust down.
 
-**Placings** are four dropdowns — name 1st, 2nd, 3rd and 4th straight off the sheet and they score
-**4 / 3 / 2 / 1** on top. Naming the same student twice is flagged. Leave them blank and the places
-are worked out instead by ranking whatever results have been typed in below, so a carnival scored
-purely on placings and one scored on full times both work, and both give the same answer.
+**Placings** are marked in the **Place** column of the sheet itself — read down the paper and put a
+1, 2, 3 or 4 against the placegetters. They score **4 / 3 / 2 / 1** on top. A student can hold only
+one place and a place only one student, so re-using either simply moves it; duplicates cannot be
+created.
+
+Leave the column alone and the places are worked out instead by ranking whatever results have been
+typed in the Result column, showing greyed in Place as a suggestion. Mark one place by hand and the
+marked set takes over. Either way of working scores the same.
 
 The per-sheet table shows exactly what that sheet is worth per house, so it can be checked against
 the paper before moving on. The scheme itself is editable on the Houses tab.

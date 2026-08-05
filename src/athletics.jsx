@@ -950,13 +950,26 @@ function ResultsTab({ events, students, results, setResults, houses, sheetMeta, 
   // Touching anything on a sheet means the paper is in hand.
   const writeMeta = (changes) => setSheetMeta({ ...sheetMeta, [metaKey]: { ...meta, received: true, ...changes } });
   const setCount = (houseId, v) => writeMeta({ counts: { ...meta.counts, [houseId]: v } });
-  const setPlace = (i, studentId) => {
+  /*
+   * Places are marked against the student on the sheet below rather than picked
+   * from a list: the scorer reads down the paper and puts a 1 next to whoever
+   * won. A student can only hold one place and a place only one student, so
+   * assigning either end clears whatever it displaces — duplicates are not
+   * possible to create.
+   */
+  const assignPlace = (studentId, value) => {
     const places = (meta.places || ['', '', '', '']).slice();
-    places[i] = studentId;
+    for (let i = 0; i < places.length; i++) if (places[i] === studentId) places[i] = '';
+    const n = parseInt(value, 10);
+    if (n >= 1 && n <= places.length) places[n - 1] = studentId;
     writeMeta({ places });
   };
-  const named = (meta.places || []).filter(Boolean);
-  const duplicatePlace = named.length !== new Set(named).size;
+  const placeOf = (studentId) => {
+    const i = (meta.places || []).indexOf(studentId);
+    return i < 0 ? '' : String(i + 1);
+  };
+  const anyNamed = (meta.places || []).some(Boolean);
+
 
   const entered = Object.keys(sheetMeta).filter(k => sheetMeta[k] && sheetMeta[k].received);
   const outstanding = [];
@@ -988,6 +1001,7 @@ function ResultsTab({ events, students, results, setResults, houses, sheetMeta, 
   const inDivision = students
     .filter(s => s.yearLevel === year && s.gender === gender)
     .sort((a, b) => (houseName(a.house) + a.name).localeCompare(houseName(b.house) + b.name));
+
   const ranked = event ? rankFor(results, event.id, division, event.scoring, studentsById) : [];
 
   /*
@@ -1105,7 +1119,8 @@ function ResultsTab({ events, students, results, setResults, houses, sheetMeta, 
           <p className="muted" style={{ marginTop: 0 }}>
             {scoring.participation} point per competitor. Count them off the sheet — the class list
             has {inDivision.length} in this division, but only those who actually competed score.
-            Placings are worth {scoring.places.join(' / ')} on top.
+            Placings are worth {scoring.places.join(' / ')} on top — put a 1, 2, 3 or 4 in the
+            <strong> Place</strong> column against the placegetters on the sheet below.
           </p>
           <div className="row">
             {houses.map(h => (
@@ -1123,26 +1138,6 @@ function ResultsTab({ events, students, results, setResults, houses, sheetMeta, 
                 houses.forEach(h => { counts[h.id] = inDivision.filter(s2 => s2.house === h.id).length; });
                 writeMeta({ counts });
               }}>Fill from class list</button>
-          </div>
-
-          <h3 style={{ marginTop: 18 }}>Placings</h3>
-          <p className="muted" style={{ marginTop: 0 }}>
-            Name them off the sheet. Leave these blank and the places will be worked out from any
-            results typed in below instead — either way scores the same.
-          </p>
-          {duplicatePlace && <div className="warn">The same student is down for more than one place.</div>}
-          <div className="row">
-            {['1st', '2nd', '3rd', '4th'].map((label, i) => (
-              <label className="fld" key={label}>
-                {label} <span className="muted">({scoring.places[i]} pts)</span>
-                <select value={(meta.places || [])[i] || ''} onChange={e => setPlace(i, e.target.value)}>
-                  <option value="">—</option>
-                  {inDivision.map(st => (
-                    <option key={st.id} value={st.id}>{st.name} · {houseName(st.house)}</option>
-                  ))}
-                </select>
-              </label>
-            ))}
           </div>
 
           <table style={{ marginTop: 6 }}>
@@ -1182,14 +1177,25 @@ function ResultsTab({ events, students, results, setResults, houses, sheetMeta, 
           ) : (
             <div className="scroll">
               <table>
-                <thead><tr><th style={{ width: 60 }}>Place</th><th>Student</th><th>House</th><th style={{ width: 140 }}>Result</th></tr></thead>
+                <thead><tr><th style={{ width: 76 }}>Place</th><th>Student</th><th>House</th><th style={{ width: 140 }}>Result</th></tr></thead>
                 <tbody>
                   {inDivision.map(s => {
                     const r = ranked.find(x => x.studentId === s.id);
-                    const cls = r && r.place <= 3 ? 'medal' + r.place : '';
+                    const mine = placeOf(s.id);
+                    // Once anyone is named, the named set governs; until then the
+                    // ranking of the typed times shows through as a suggestion.
+                    const shown = anyNamed ? mine : '';
+                    const hint = anyNamed ? '' : (r ? String(r.place) : '');
+                    const effective = Number(shown || hint);
+                    const cls = effective >= 1 && effective <= 3 ? 'medal' + effective : '';
                     return (
                       <tr key={s.id} className={cls}>
-                        <td><strong>{r ? r.place : ''}</strong></td>
+                        <td>
+                          <input type="number" min="1" max="4" value={shown} placeholder={hint || '—'}
+                            aria-label={'Place for ' + s.name} className="placebox"
+                            style={{ marginTop: 0 }}
+                            onChange={e => assignPlace(s.id, e.target.value)} />
+                        </td>
                         <td>{s.name}</td>
                         <td className="muted">{houseName(s.house)}</td>
                         <td>
@@ -1559,7 +1565,7 @@ function SheetsTab({ events, students, results, houses }) {
                 <th>Student</th>
                 <th style={{ width: 110 }}>House</th>
                 <th style={{ width: 110 }}>Result</th>
-                <th style={{ width: 60 }}>Place</th>
+                <th style={{ width: 76 }}>Place</th>
               </tr>
             </thead>
             <tbody>

@@ -93,6 +93,9 @@
   @page { margin: 14mm; }
 }
 
+/* Place column on the results sheet — narrow, so a 1-4 reads at a glance. */
+.placebox { width: 56px; text-align: center; font-weight: 700; }
+
 </style>
 </head>
 <body>
@@ -2313,15 +2316,27 @@ function ResultsTab({
       [houseId]: v
     }
   });
-  const setPlace = (i, studentId) => {
+  /*
+   * Places are marked against the student on the sheet below rather than picked
+   * from a list: the scorer reads down the paper and puts a 1 next to whoever
+   * won. A student can only hold one place and a place only one student, so
+   * assigning either end clears whatever it displaces — duplicates are not
+   * possible to create.
+   */
+  const assignPlace = (studentId, value) => {
     const places = (meta.places || ['', '', '', '']).slice();
-    places[i] = studentId;
+    for (let i = 0; i < places.length; i++) if (places[i] === studentId) places[i] = '';
+    const n = parseInt(value, 10);
+    if (n >= 1 && n <= places.length) places[n - 1] = studentId;
     writeMeta({
       places
     });
   };
-  const named = (meta.places || []).filter(Boolean);
-  const duplicatePlace = named.length !== new Set(named).size;
+  const placeOf = studentId => {
+    const i = (meta.places || []).indexOf(studentId);
+    return i < 0 ? '' : String(i + 1);
+  };
+  const anyNamed = (meta.places || []).some(Boolean);
   const entered = Object.keys(sheetMeta).filter(k => sheetMeta[k] && sheetMeta[k].received);
   const outstanding = [];
   for (let i = 1; i <= sheetIndex.total; i++) {
@@ -2526,7 +2541,7 @@ function ResultsTab({
     style: {
       marginTop: 0
     }
-  }, scoring.participation, " point per competitor. Count them off the sheet \u2014 the class list has ", inDivision.length, " in this division, but only those who actually competed score. Placings are worth ", scoring.places.join(' / '), " on top."), /*#__PURE__*/React.createElement("div", {
+  }, scoring.participation, " point per competitor. Count them off the sheet \u2014 the class list has ", inDivision.length, " in this division, but only those who actually competed score. Placings are worth ", scoring.places.join(' / '), " on top \u2014 put a 1, 2, 3 or 4 in the", /*#__PURE__*/React.createElement("strong", null, " Place"), " column against the placegetters on the sheet below."), /*#__PURE__*/React.createElement("div", {
     className: "row"
   }, houses.map(h => /*#__PURE__*/React.createElement("label", {
     className: "fld",
@@ -2560,33 +2575,7 @@ function ResultsTab({
         counts
       });
     }
-  }, "Fill from class list")), /*#__PURE__*/React.createElement("h3", {
-    style: {
-      marginTop: 18
-    }
-  }, "Placings"), /*#__PURE__*/React.createElement("p", {
-    className: "muted",
-    style: {
-      marginTop: 0
-    }
-  }, "Name them off the sheet. Leave these blank and the places will be worked out from any results typed in below instead \u2014 either way scores the same."), duplicatePlace && /*#__PURE__*/React.createElement("div", {
-    className: "warn"
-  }, "The same student is down for more than one place."), /*#__PURE__*/React.createElement("div", {
-    className: "row"
-  }, ['1st', '2nd', '3rd', '4th'].map((label, i) => /*#__PURE__*/React.createElement("label", {
-    className: "fld",
-    key: label
-  }, label, " ", /*#__PURE__*/React.createElement("span", {
-    className: "muted"
-  }, "(", scoring.places[i], " pts)"), /*#__PURE__*/React.createElement("select", {
-    value: (meta.places || [])[i] || '',
-    onChange: e => setPlace(i, e.target.value)
-  }, /*#__PURE__*/React.createElement("option", {
-    value: ""
-  }, "\u2014"), inDivision.map(st => /*#__PURE__*/React.createElement("option", {
-    key: st.id,
-    value: st.id
-  }, st.name, " \xB7 ", houseName(st.house))))))), /*#__PURE__*/React.createElement("table", {
+  }, "Fill from class list")), /*#__PURE__*/React.createElement("table", {
     style: {
       marginTop: 6
     }
@@ -2629,7 +2618,7 @@ function ResultsTab({
     className: "scroll"
   }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
     style: {
-      width: 60
+      width: 76
     }
   }, "Place"), /*#__PURE__*/React.createElement("th", null, "Student"), /*#__PURE__*/React.createElement("th", null, "House"), /*#__PURE__*/React.createElement("th", {
     style: {
@@ -2637,11 +2626,29 @@ function ResultsTab({
     }
   }, "Result"))), /*#__PURE__*/React.createElement("tbody", null, inDivision.map(s => {
     const r = ranked.find(x => x.studentId === s.id);
-    const cls = r && r.place <= 3 ? 'medal' + r.place : '';
+    const mine = placeOf(s.id);
+    // Once anyone is named, the named set governs; until then the
+    // ranking of the typed times shows through as a suggestion.
+    const shown = anyNamed ? mine : '';
+    const hint = anyNamed ? '' : r ? String(r.place) : '';
+    const effective = Number(shown || hint);
+    const cls = effective >= 1 && effective <= 3 ? 'medal' + effective : '';
     return /*#__PURE__*/React.createElement("tr", {
       key: s.id,
       className: cls
-    }, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("strong", null, r ? r.place : '')), /*#__PURE__*/React.createElement("td", null, s.name), /*#__PURE__*/React.createElement("td", {
+    }, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("input", {
+      type: "number",
+      min: "1",
+      max: "4",
+      value: shown,
+      placeholder: hint || '—',
+      "aria-label": 'Place for ' + s.name,
+      className: "placebox",
+      style: {
+        marginTop: 0
+      },
+      onChange: e => assignPlace(s.id, e.target.value)
+    })), /*#__PURE__*/React.createElement("td", null, s.name), /*#__PURE__*/React.createElement("td", {
       className: "muted"
     }, houseName(s.house)), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("input", {
       type: "text",
@@ -3044,7 +3051,7 @@ function SheetsTab({
     }
   }, "Result"), /*#__PURE__*/React.createElement("th", {
     style: {
-      width: 60
+      width: 76
     }
   }, "Place"))), /*#__PURE__*/React.createElement("tbody", null, sh.rows.map((s, idx) => {
     if (!s) {
