@@ -116,3 +116,17 @@ begin
       'create policy %I_anon_all on %I for all to anon using (true) with check (true)', t, t);
   end loop;
 end $$;
+
+-- A policy only decides which rows a role may touch; the role still needs the
+-- table privilege to touch any of them. Supabase's default privileges normally
+-- cover this, but granting explicitly means the schema does not depend on that
+-- and cannot fail with "permission denied for table" after a clean run.
+grant usage on schema public to anon, authenticated;
+
+do $$
+declare t text;
+begin
+  foreach t in array array['houses','events','students','results','sheets','settings'] loop
+    execute format('grant select, insert, update, delete on %I to anon, authenticated', t);
+  end loop;
+end $$;
