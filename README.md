@@ -91,7 +91,14 @@ opens it. When the last one lands it reads *all in ✓*.
 Every event and division sends its top finisher (configurable), but no student may run more than
 **two individual events**. Relays sit outside the cap.
 
-When someone wins more than two, the tab flags them and asks which two they'll run. Every event
+**Event preferences** can be recorded for anyone who has placed in anything, not only for students
+the allocation has already flagged. Search a name, see every event they have a placing in with the
+place they got, tick up to the cap, and add a note — a clash, an injury, a parent request. The
+allocation gives them what they asked for and passes the rest down. Everything recorded is listed
+underneath so it can be reviewed or cleared.
+
+When someone wins more than two and has not said what they want, the tab flags them and asks which
+two they'll run. Every event
 they let go is offered to the next finisher — who may now be over the cap themselves, so it
 cascades until it settles. Change a pick and the team sheet re-derives instantly; **How the spots
 moved** shows who was passed over and why.

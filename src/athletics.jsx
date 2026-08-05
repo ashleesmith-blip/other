@@ -1296,6 +1296,54 @@ function DistrictTab({ events, students, results, prefs, setPrefs, settings, set
 
   const withResults = alloc.contests.length > 0;
 
+  /*
+   * Preferences can be recorded for anyone who has placed in anything, not only
+   * for the students the allocation has already flagged as over the cap. A
+   * student who wants the 200m over the 100m should be able to say so before
+   * the third result comes in and makes it urgent.
+   */
+  const [prefName, setPrefName] = useState('');
+
+  const placedStudents = useMemo(() => {
+    const seen = {};
+    alloc.contests.forEach(c => c.ranked.forEach(r => {
+      const st = studentsById[r.studentId];
+      if (st) seen[r.studentId] = st;
+    }));
+    return Object.keys(seen).map(id => seen[id])
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [alloc, studentsById]);
+
+  const prefLabels = useMemo(() => {
+    const label = {}, byLabel = {};
+    placedStudents.forEach(st => {
+      const l = st.name + ' · Yr ' + (st.yearLevel || '?') + ' ' + (st.gender || '');
+      label[st.id] = l;
+      byLabel[l.trim().toLowerCase()] = st.id;
+    });
+    return { label, byLabel, list: placedStudents.map(st => label[st.id]) };
+  }, [placedStudents]);
+
+  const prefStudentId = prefLabels.byLabel[prefName.trim().toLowerCase()] || '';
+
+  // Every event this student has a placing in, best placing first.
+  const placingsOf = (sid) => alloc.contests
+    .map(c => {
+      const r = c.ranked.find(x => x.studentId === sid);
+      return r ? { event: c.event, division: c.division, place: r.place } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.place - b.place);
+
+  const setNote = (sid, note) => setPrefs({ ...prefs, [sid]: { ...(prefs[sid] || {}), note } });
+  const clearPrefs = (sid) => {
+    const next = { ...prefs };
+    delete next[sid];
+    setPrefs(next);
+  };
+  const withPrefs = Object.keys(prefs).filter(id =>
+    studentsById[id] && ((prefs[id].chosen || []).length || prefs[id].note));
+
   return (
     <div>
       <h2>District team</h2>
@@ -1317,6 +1365,91 @@ function DistrictTab({ events, students, results, prefs, setPrefs, settings, set
       </div>
 
       {!withResults && <p className="muted">Record some results first — the district team is worked out from them.</p>}
+
+      {withResults && (
+        <div className="card noprint">
+          <h3>Event preferences</h3>
+          <p className="muted" style={{ marginTop: 0 }}>
+            Record what a student wants before it becomes urgent. Tick up to {settings.maxPerStudent},
+            and the allocation gives them those and passes everything else down to the next finisher —
+            whether or not they have been flagged below. Relays sit outside this.
+          </p>
+          <datalist id="district-roll">
+            {prefLabels.list.map(l => <option key={l} value={l} />)}
+          </datalist>
+          <div className="row">
+            <label className="fld" style={{ flex: '1 1 300px' }}>Student
+              <input type="text" list="district-roll" value={prefName} placeholder="start typing a name"
+                onChange={e => setPrefName(e.target.value)} />
+            </label>
+            {prefName && !prefStudentId && (
+              <div className="muted" style={{ flex: '1 1 200px', paddingBottom: 10, color: '#b45309' }}>
+                Nobody placed is called that.
+              </div>
+            )}
+          </div>
+
+          {prefStudentId && (() => {
+            const mine = placingsOf(prefStudentId);
+            const chosen = (prefs[prefStudentId] || {}).chosen || [];
+            if (!mine.length) return <p className="muted">No placings recorded for them yet.</p>;
+            return (
+              <div>
+                <p className="muted" style={{ marginBottom: 8 }}>
+                  <strong>{chosen.length}</strong> of {settings.maxPerStudent} chosen ·
+                  {' '}placed in {mine.length} event{mine.length === 1 ? '' : 's'}
+                </p>
+                <table>
+                  <thead><tr><th style={{ width: 70 }}>Wants</th><th>Event</th><th>Division</th><th style={{ width: 80 }}>Placed</th></tr></thead>
+                  <tbody>
+                    {mine.map(m => (
+                      <tr key={m.event.id + m.division}>
+                        <td>
+                          <input type="checkbox" checked={chosen.includes(m.event.id)}
+                            aria-label={'Prefer ' + m.event.name}
+                            onChange={e => setChosen(prefStudentId, m.event.id, e.target.checked)} />
+                        </td>
+                        <td><strong>{m.event.name}</strong></td>
+                        <td className="muted">Yr {m.division}</td>
+                        <td>{['1st', '2nd', '3rd', '4th'][m.place - 1] || (m.place + 'th')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <label className="fld" style={{ marginTop: 12 }}>Note (why, or anything the day needs to know)
+                  <input type="text" value={(prefs[prefStudentId] || {}).note || ''}
+                    placeholder="e.g. carnival clash, injury, parent request"
+                    onChange={e => setNote(prefStudentId, e.target.value)} />
+                </label>
+                <button className="btn-ghost btn-sm" onClick={() => { clearPrefs(prefStudentId); setPrefName(prefName); }}>
+                  Clear their preferences
+                </button>
+              </div>
+            );
+          })()}
+
+          {withPrefs.length > 0 && (
+            <div style={{ marginTop: 18 }}>
+              <h3 style={{ marginBottom: 8 }}>Recorded so far ({withPrefs.length})</h3>
+              <table>
+                <thead><tr><th>Student</th><th>Wants</th><th>Note</th><th style={{ width: 70 }}></th></tr></thead>
+                <tbody>
+                  {withPrefs.map(id => (
+                    <tr key={id}>
+                      <td>{nameOf(id)} <span className="muted">Yr {(studentsById[id] || {}).yearLevel}</span></td>
+                      <td>{((prefs[id].chosen || []).map(eventName).join(', ')) || <span className="muted">—</span>}</td>
+                      <td className="muted">{prefs[id].note || ''}</td>
+                      <td>
+                        <button className="btn-ghost btn-sm" onClick={() => clearPrefs(id)}>Clear</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {alloc.needsChoice.length > 0 && (
         <div className="card">
