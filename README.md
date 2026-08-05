@@ -187,6 +187,18 @@ brings them back — the merge looks like it did nothing. Run
 server-side, where the editor runs as the owner. It repoints results and placings, drops any result
 that would collide on the survivor, and is a no-op once nothing is duplicated.
 
+### If the browser and the server have drifted apart
+
+De-duplicating in both places can leave them keeping different copies, so the ids no longer line up
+and results pulled down point at students that are not there — they render as blank rows on the
+other device.
+
+Rather than reconcile it, make one side authoritative:
+[`supabase-reset-data.sql`](supabase-reset-data.sql) empties students, results and sheets on the
+server, leaving houses, events and the points scheme alone, and everything it removes is archived in
+`deleted_rows`. Then press **Upload this browser to Supabase** from the device whose Houses tab
+shows the totals you expect, and **Connect and pull** on every other device afterwards.
+
 ## Backups — read this one
 
 With sync off, everything is stored in **one browser, on one address**, via `localStorage`, and
