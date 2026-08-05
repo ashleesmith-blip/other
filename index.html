@@ -111,6 +111,13 @@
 }
 .hint:hover .hint-box, .hint:focus-within .hint-box { display: block; }
 
+/* Name in the per-student list, clickable to expand their placings. */
+.linkish {
+  background: none; padding: 0; color: #2563eb; font-weight: 600;
+  font-size: 14px; text-align: left;
+}
+.linkish:hover { text-decoration: underline; }
+
 </style>
 </head>
 <body>
@@ -3108,6 +3115,7 @@ function DistrictTab({
    * the third result comes in and makes it urgent.
    */
   const [prefName, setPrefName] = useState('');
+  const [openStudent, setOpenStudent] = useState(null);
   const placedStudents = useMemo(() => {
     const seen = {};
     alloc.contests.forEach(c => c.ranked.forEach(r => {
@@ -3132,15 +3140,20 @@ function DistrictTab({
   }, [placedStudents]);
   const prefStudentId = prefLabels.byLabel[prefName.trim().toLowerCase()] || '';
 
-  // Every event this student has a placing in, best placing first.
+  // Every event this student has a placing in, best placing first, with what
+  // they did — the mark comes off the placing where there is one, and off the
+  // recorded result otherwise.
   const placingsOf = sid => alloc.contests.map(c => {
     const r = c.ranked.find(x => x.studentId === sid);
-    return r ? {
+    if (!r) return null;
+    const hit = (results || []).find(x => x.eventId === c.event.id && x.studentId === sid);
+    return {
       event: c.event,
       division: c.division,
-      place: r.place
-    } : null;
-  }).filter(Boolean).sort((a, b) => a.place - b.place);
+      place: r.place,
+      mark: r.result || (hit ? hit.result : '')
+    };
+  }).filter(Boolean).sort((a, b) => a.place - b.place || a.event.name.localeCompare(b.event.name));
   const setNote = (sid, note) => setPrefs({
     ...prefs,
     [sid]: {
@@ -3464,11 +3477,68 @@ function DistrictTab({
     }, "auto")));
   })))))), withResults && /*#__PURE__*/React.createElement("div", {
     className: "card"
-  }, /*#__PURE__*/React.createElement("h3", null, "Per student"), /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Student"), /*#__PURE__*/React.createElement("th", null, "Events"))), /*#__PURE__*/React.createElement("tbody", null, Object.keys(alloc.held).sort((a, b) => nameOf(a).localeCompare(nameOf(b))).map(sid => /*#__PURE__*/React.createElement("tr", {
-    key: sid
-  }, /*#__PURE__*/React.createElement("td", null, nameOf(sid), " ", /*#__PURE__*/React.createElement("span", {
-    className: "muted"
-  }, "Yr ", (studentsById[sid] || {}).yearLevel)), /*#__PURE__*/React.createElement("td", null, alloc.held[sid].map(h => eventName(h.eventId)).join(', '))))))), alloc.passedOver.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("h3", null, "Per student"), /*#__PURE__*/React.createElement("p", {
+    className: "muted",
+    style: {
+      marginTop: 0
+    }
+  }, "Click a name to see everything they placed in \u2014 including events they are not going to district for \u2014 with the time or distance they did it in."), /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Student"), /*#__PURE__*/React.createElement("th", null, "Going to district for"))), /*#__PURE__*/React.createElement("tbody", null, Object.keys(alloc.held).sort((a, b) => nameOf(a).localeCompare(nameOf(b))).map(sid => {
+    const open = openStudent === sid;
+    const all = open ? placingsOf(sid) : [];
+    const going = alloc.held[sid].map(h => h.eventId);
+    return /*#__PURE__*/React.createElement(React.Fragment, {
+      key: sid
+    }, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("button", {
+      className: "linkish",
+      "aria-expanded": open,
+      onClick: () => setOpenStudent(open ? null : sid)
+    }, open ? '▾' : '▸', " ", nameOf(sid)), /*#__PURE__*/React.createElement("span", {
+      className: "muted"
+    }, " Yr ", (studentsById[sid] || {}).yearLevel)), /*#__PURE__*/React.createElement("td", null, alloc.held[sid].map(h => eventName(h.eventId)).join(', '))), open && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
+      colSpan: 2,
+      style: {
+        background: '#f7f9fa'
+      }
+    }, all.length === 0 ? /*#__PURE__*/React.createElement("span", {
+      className: "muted"
+    }, "No placings recorded.") : /*#__PURE__*/React.createElement("table", {
+      style: {
+        margin: 0
+      }
+    }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+      style: {
+        width: 70
+      }
+    }, "Place"), /*#__PURE__*/React.createElement("th", null, "Event"), /*#__PURE__*/React.createElement("th", {
+      style: {
+        width: 110
+      }
+    }, "Division"), /*#__PURE__*/React.createElement("th", {
+      style: {
+        width: 120
+      }
+    }, "Result"), /*#__PURE__*/React.createElement("th", {
+      style: {
+        width: 130
+      }
+    }))), /*#__PURE__*/React.createElement("tbody", null, all.map(m => /*#__PURE__*/React.createElement("tr", {
+      key: m.event.id + m.division
+    }, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("strong", null, ['1st', '2nd', '3rd', '4th'][m.place - 1] || m.place + 'th')), /*#__PURE__*/React.createElement("td", null, m.event.name), /*#__PURE__*/React.createElement("td", {
+      className: "muted"
+    }, "Yr ", m.division), /*#__PURE__*/React.createElement("td", null, m.mark ? m.mark + ' ' + m.event.unit : /*#__PURE__*/React.createElement("span", {
+      className: "muted"
+    }, "\u2014")), /*#__PURE__*/React.createElement("td", null, going.indexOf(m.event.id) >= 0 ? /*#__PURE__*/React.createElement("span", {
+      className: "pill",
+      style: {
+        background: '#dcfce7'
+      }
+    }, "going") : /*#__PURE__*/React.createElement("span", {
+      className: "muted",
+      style: {
+        fontSize: 12
+      }
+    }, "not going")))))))));
+  })))), alloc.passedOver.length > 0 && /*#__PURE__*/React.createElement("div", {
     className: "card noprint"
   }, /*#__PURE__*/React.createElement("h3", null, "How the spots moved", /*#__PURE__*/React.createElement("button", {
     className: "btn-ghost btn-sm",

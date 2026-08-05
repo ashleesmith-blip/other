@@ -1518,6 +1518,7 @@ function DistrictTab({ events, students, results, prefs, setPrefs, settings, set
    * the third result comes in and makes it urgent.
    */
   const [prefName, setPrefName] = useState('');
+  const [openStudent, setOpenStudent] = useState(null);
 
   const placedStudents = useMemo(() => {
     const seen = {};
@@ -1541,14 +1542,21 @@ function DistrictTab({ events, students, results, prefs, setPrefs, settings, set
 
   const prefStudentId = prefLabels.byLabel[prefName.trim().toLowerCase()] || '';
 
-  // Every event this student has a placing in, best placing first.
+  // Every event this student has a placing in, best placing first, with what
+  // they did — the mark comes off the placing where there is one, and off the
+  // recorded result otherwise.
   const placingsOf = (sid) => alloc.contests
     .map(c => {
       const r = c.ranked.find(x => x.studentId === sid);
-      return r ? { event: c.event, division: c.division, place: r.place } : null;
+      if (!r) return null;
+      const hit = (results || []).find(x => x.eventId === c.event.id && x.studentId === sid);
+      return {
+        event: c.event, division: c.division, place: r.place,
+        mark: r.result || (hit ? hit.result : ''),
+      };
     })
     .filter(Boolean)
-    .sort((a, b) => a.place - b.place);
+    .sort((a, b) => a.place - b.place || a.event.name.localeCompare(b.event.name));
 
   const setNote = (sid, note) => setPrefs({ ...prefs, [sid]: { ...(prefs[sid] || {}), note } });
   const clearPrefs = (sid) => {
@@ -1807,15 +1815,67 @@ function DistrictTab({ events, students, results, prefs, setPrefs, settings, set
       {withResults && (
         <div className="card">
           <h3>Per student</h3>
+          <p className="muted" style={{ marginTop: 0 }}>
+            Click a name to see everything they placed in — including events they are not going to
+            district for — with the time or distance they did it in.
+          </p>
           <table>
-            <thead><tr><th>Student</th><th>Events</th></tr></thead>
+            <thead><tr><th>Student</th><th>Going to district for</th></tr></thead>
             <tbody>
-              {Object.keys(alloc.held).sort((a, b) => nameOf(a).localeCompare(nameOf(b))).map(sid => (
-                <tr key={sid}>
-                  <td>{nameOf(sid)} <span className="muted">Yr {(studentsById[sid] || {}).yearLevel}</span></td>
-                  <td>{alloc.held[sid].map(h => eventName(h.eventId)).join(', ')}</td>
-                </tr>
-              ))}
+              {Object.keys(alloc.held).sort((a, b) => nameOf(a).localeCompare(nameOf(b))).map(sid => {
+                const open = openStudent === sid;
+                const all = open ? placingsOf(sid) : [];
+                const going = alloc.held[sid].map(h => h.eventId);
+                return (
+                  <React.Fragment key={sid}>
+                    <tr>
+                      <td>
+                        <button className="linkish" aria-expanded={open}
+                          onClick={() => setOpenStudent(open ? null : sid)}>
+                          {open ? '▾' : '▸'} {nameOf(sid)}
+                        </button>
+                        <span className="muted"> Yr {(studentsById[sid] || {}).yearLevel}</span>
+                      </td>
+                      <td>{alloc.held[sid].map(h => eventName(h.eventId)).join(', ')}</td>
+                    </tr>
+                    {open && (
+                      <tr>
+                        <td colSpan={2} style={{ background: '#f7f9fa' }}>
+                          {all.length === 0
+                            ? <span className="muted">No placings recorded.</span>
+                            : (
+                              <table style={{ margin: 0 }}>
+                                <thead>
+                                  <tr>
+                                    <th style={{ width: 70 }}>Place</th><th>Event</th>
+                                    <th style={{ width: 110 }}>Division</th>
+                                    <th style={{ width: 120 }}>Result</th>
+                                    <th style={{ width: 130 }}></th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {all.map(m => (
+                                    <tr key={m.event.id + m.division}>
+                                      <td><strong>{['1st', '2nd', '3rd', '4th'][m.place - 1] || (m.place + 'th')}</strong></td>
+                                      <td>{m.event.name}</td>
+                                      <td className="muted">Yr {m.division}</td>
+                                      <td>{m.mark ? m.mark + ' ' + m.event.unit : <span className="muted">—</span>}</td>
+                                      <td>
+                                        {going.indexOf(m.event.id) >= 0
+                                          ? <span className="pill" style={{ background: '#dcfce7' }}>going</span>
+                                          : <span className="muted" style={{ fontSize: 12 }}>not going</span>}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            )}
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>

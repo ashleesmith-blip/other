@@ -102,3 +102,10 @@
   box-shadow: 0 6px 18px rgba(0,0,0,.22);
 }
 .hint:hover .hint-box, .hint:focus-within .hint-box { display: block; }
+
+/* Name in the per-student list, clickable to expand their placings. */
+.linkish {
+  background: none; padding: 0; color: #2563eb; font-weight: 600;
+  font-size: 14px; text-align: left;
+}
+.linkish:hover { text-decoration: underline; }

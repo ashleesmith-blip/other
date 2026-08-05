@@ -164,6 +164,19 @@ and change every row. Mitigate by putting the site behind Netlify's password pro
 settings → Access & security). To tighten properly later, change `to anon` to `to authenticated` in
 the policies at the bottom of `supabase.sql` and add Supabase Auth; no schema change is needed.
 
+### If the same student appears twice
+
+The importer skips anyone already on the list, but a roll can still end up doubled — most often by
+loading a class list on top of one whose records carry different internal ids.
+
+**Students → Merge duplicates** fixes the browser: it keeps whichever copy the results and placings
+reference and moves everything onto it. **This is not enough on its own once sync is on**, because
+`supabase-protect.sql` revokes student deletes, so the copies stay on the server and the next pull
+brings them back — the merge looks like it did nothing. Run
+[`supabase-dedupe.sql`](supabase-dedupe.sql) in the SQL editor as well; it does the same job
+server-side, where the editor runs as the owner. It repoints results and placings, drops any result
+that would collide on the survivor, and is a no-op once nothing is duplicated.
+
 ## Backups — read this one
 
 With sync off, everything is stored in **one browser, on one address**, via `localStorage`, and
