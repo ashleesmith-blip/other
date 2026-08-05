@@ -225,7 +225,78 @@ function tallyHousePoints(houses, students, sheetMeta, results, events, scoring)
   return tally;
 }
 
-// Rank the results for one event+division. Returns [{studentId, raw, value, place}] best first.
+/* ------------------------------------------------- what is attached to what
+ *
+ * Nothing in the carnival data stands on its own. A student carries results,
+ * placings marked on sheets, a district spot and their event preferences; an
+ * event carries all of that across every division it was run in. Deleting
+ * either used to ask a bare "are you sure?", which is no help at all — the real
+ * question is what goes with it, and the answer that matters most is the house
+ * points, because a placing whose student has gone stops scoring and the house
+ * quietly drops four points with nothing on screen to say why.
+ *
+ * So both delete paths count the attachments first and say them out loud. The
+ * same counts drive the flag shown against a row before anything is clicked.
+ */
+function attachmentsOfStudent(id, { results, sheetMeta, dteam, prefs, events, scoring }) {
+  const eventNameOf = (eid) => ((events || []).find(e => e.id === eid) || {}).name || 'an event';
+  const resultCount = (results || []).filter(r => r.studentId === id).length;
+
+  const placings = [];
+  Object.keys(sheetMeta || {}).forEach(k => {
+    const at = ((sheetMeta[k] || {}).places || []).indexOf(id);
+    if (at < 0) return;
+    const cut = k.indexOf('::');
+    placings.push({
+      place: at + 1,
+      event: eventNameOf(k.slice(0, cut)),
+      points: ((scoring || DEFAULT_SCORING).places || [])[at] || 0,
+    });
+  });
+
+  let spots = 0;
+  Object.keys(dteam || {}).forEach(k => {
+    const raw = dteam[k];
+    const ids = Array.isArray(raw) ? raw : (raw && raw.ids) || [];
+    if (ids.indexOf(id) >= 0) spots++;
+  });
+
+  const pref = (prefs || {})[id];
+  const hasPrefs = !!(pref && (((pref.chosen || []).length) || pref.note));
+
+  return {
+    results: resultCount,
+    placings,
+    spots,
+    hasPrefs,
+    points: placings.reduce((n, p) => n + p.points, 0),
+    any: resultCount > 0 || placings.length > 0 || spots > 0 || hasPrefs,
+  };
+}
+
+// The same question for an event, counted across every division it was run in.
+function attachmentsOfEvent(id, { results, sheetMeta, dteam }) {
+  const resultCount = (results || []).filter(r => r.eventId === id).length;
+  const prefix = id + '::';
+  const sheets = Object.keys(sheetMeta || {}).filter(k => k.slice(0, prefix.length) === prefix);
+  const marked = sheets.filter(k => ((sheetMeta[k] || {}).places || []).some(Boolean));
+  const counted = sheets.filter(k => {
+    const c = (sheetMeta[k] || {}).counts || {};
+    return Object.keys(c).some(h => (parseInt(c[h], 10) || 0) > 0);
+  });
+  const spots = Object.keys(dteam || {}).filter(k => {
+    if (k.slice(0, prefix.length) !== prefix) return false;
+    const raw = dteam[k];
+    const ids = Array.isArray(raw) ? raw : (raw && raw.ids) || [];
+    return ids.some(Boolean);
+  }).length;
+  return { results: resultCount, sheets: sheets.length, marked: marked.length, counted: counted.length, spots };
+}
+
+// A bulleted list for a confirm box. Only the lines that apply.
+const listLines = (lines) => lines.filter(Boolean).map(l => '  • ' + l).join('\n');
+
+/* Rank the results for one event+division. Returns [{studentId, raw, value, place}] best first. */
 function rankFor(results, eventId, division, scoring, studentsById) {
   const rows = results
     .filter(r => r.eventId === eventId && studentsById[r.studentId] && divisionOf(studentsById[r.studentId]) === division)
@@ -332,7 +403,7 @@ function allocateDistrict(events, results, students, prefs, opts, sheetMeta) {
 
 /* ---------------------------------------------------------------- tabs */
 
-function EventsTab({ events, setEvents }) {
+function EventsTab({ events, setEvents, results, sheetMeta, dteam, students, houses, scoring }) {
   const blank = { name: '', type: 'track', scoring: 'lower', unit: 'sec', years: ['3','4','5','6'] };
   const [draft, setDraft] = useState(blank);
 
@@ -343,11 +414,48 @@ function EventsTab({ events, setEvents }) {
   };
   const patch = (id, changes) => setEvents(events.map(e => e.id === id ? { ...e, ...changes } : e));
 
+  const attachMap = useMemo(() => {
+    const m = {};
+    events.forEach(ev => { m[ev.id] = attachmentsOfEvent(ev.id, { results, sheetMeta, dteam }); });
+    return m;
+  }, [events, results, sheetMeta, dteam]);
+
+  /*
+   * An event is not deleted so much as hidden: its results and sheets stay in
+   * the data, because an event added back gets a new id and could never be
+   * reunited with them. What does change immediately is the house tally — the
+   * points that came off this event stop counting the moment it goes — so that
+   * figure is worked out and shown rather than left to be discovered on the
+   * Houses tab.
+   */
   const remove = (id) => {
     const ev = events.find(e => e.id === id);
+    const a = attachMap[id] || { results: 0, sheets: 0, marked: 0, counted: 0, spots: 0 };
+    const lost = tallyHousePoints(houses || [], students || [], sheetMeta || {}, results || [],
+      ev ? [ev] : [], scoring || DEFAULT_SCORING);
+    const lostTotal = Object.keys(lost).reduce((n, h) => n + lost[h].total, 0);
+    const byHouse = (houses || [])
+      .filter(h => lost[h.id] && lost[h.id].total)
+      .map(h => h.name + ' ' + lost[h.id].total)
+      .join(', ');
+
+    const detail = listLines([
+      a.results ? a.results + ' recorded result' + (a.results === 1 ? '' : 's') : '',
+      a.marked ? a.marked + ' sheet' + (a.marked === 1 ? '' : 's') + ' with placings marked' : '',
+      a.counted ? a.counted + ' sheet' + (a.counted === 1 ? '' : 's') + ' with participation counted' : '',
+      a.spots ? a.spots + ' district team row' + (a.spots === 1 ? '' : 's') + ' filled in' : '',
+    ]);
+
     if (!confirm('Remove ' + (ev ? ev.name : 'this event') + '?\n\n' +
-      'Results recorded against it stay in the data but stop being shown, and every sheet ' +
-      'number after it shifts.')) return;
+      (detail
+        ? 'It has data recorded against it:\n' + detail + '\n\n' +
+          'That stays in the browser but stops being shown or counted' +
+          (lostTotal
+            ? ', so the house tally drops by ' + lostTotal + ' point' + (lostTotal === 1 ? '' : 's') +
+              (byHouse ? ' (' + byHouse + ')' : '')
+            : '') + '.\n\n'
+        : 'Nothing is recorded against it yet.\n\n') +
+      'Every sheet number after it shifts.')) return;
     setEvents(events.filter(e => e.id !== id));
   };
   const toggleYear = (y) => setDraft(d => ({
@@ -463,7 +571,28 @@ function EventsTab({ events, setEvents }) {
                     ))}
                   </div>
                 </td>
-                <td><button className="btn-ghost btn-sm" onClick={() => remove(ev.id)}>Remove</button></td>
+                <td style={{ whiteSpace: 'nowrap' }}>
+                  {(() => {
+                    const a = attachMap[ev.id];
+                    if (!a || (!a.results && !a.marked && !a.counted && !a.spots)) return null;
+                    return (
+                      <span className="pill attached"
+                        title={ev.name + ' has ' + [
+                          a.results ? a.results + ' recorded result' + (a.results === 1 ? '' : 's') : '',
+                          a.marked ? a.marked + ' sheet' + (a.marked === 1 ? '' : 's') + ' with placings' : '',
+                          a.counted ? a.counted + ' sheet' + (a.counted === 1 ? '' : 's') + ' with participation counted' : '',
+                          a.spots ? a.spots + ' district row' + (a.spots === 1 ? '' : 's') : '',
+                        ].filter(Boolean).join('; ') + '.'}>
+                        ⚑ {[
+                          a.results ? a.results + ' result' + (a.results === 1 ? '' : 's') : '',
+                          a.marked || a.counted ? Math.max(a.marked, a.counted) + ' sheet' +
+                            (Math.max(a.marked, a.counted) === 1 ? '' : 's') : '',
+                        ].filter(Boolean).join(' · ') || 'district'}
+                      </span>
+                    );
+                  })()}
+                  <button className="btn-ghost btn-sm" onClick={() => remove(ev.id)}>Remove</button>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -584,7 +713,7 @@ function HousesTab({ houses, setHouses, students, events, results, sheetMeta, sc
  * Every callback it receives has to keep a stable identity for that to hold —
  * see the useCallback block in StudentsTab.
  */
-const StudentRow = React.memo(function StudentRow({ s, houses, onPatch, onRemove, onFocus }) {
+const StudentRow = React.memo(function StudentRow({ s, houses, attached, onPatch, onRemove, onFocus }) {
   const set = (field) => (e) => onPatch(s.id, { [field]: e.target.value });
   return (
     <tr onFocus={() => onFocus(s.id)}>
@@ -617,14 +746,34 @@ const StudentRow = React.memo(function StudentRow({ s, houses, onPatch, onRemove
         <input type="text" value={s.beepTest || ''} style={{ marginTop: 0 }} aria-label="Beep test"
           onChange={set('beepTest')} />
       </td>
-      <td>
+      <td style={{ whiteSpace: 'nowrap' }}>
+        {/* A flag before the button, so what is at stake is visible without
+            having to click it and read a dialog. */}
+        {attached && attached.any && (
+          <span className="pill attached" title={attachedTitle(s.name, attached)}>
+            ⚑ {[
+              attached.results ? attached.results + ' result' + (attached.results === 1 ? '' : 's') : '',
+              attached.placings.length ? attached.placings.length + ' placing' + (attached.placings.length === 1 ? '' : 's') : '',
+              attached.spots ? attached.spots + ' district' : '',
+            ].filter(Boolean).join(' · ') || 'preferences'}
+          </span>
+        )}
         <button className="btn-ghost btn-sm" onClick={() => onRemove(s)}>Remove</button>
       </td>
     </tr>
   );
 });
 
-function StudentsTab({ students, setStudents, houses, results, setResults, sheetMeta, setSheetMeta, syncLive }) {
+const attachedTitle = (name, a) => name + ' has ' + [
+  a.results ? a.results + ' recorded result' + (a.results === 1 ? '' : 's') : '',
+  a.placings.length ? a.placings.map(p => ordinal(p.place) + ' in ' + p.event).join(', ') : '',
+  a.spots ? a.spots + ' district team spot' + (a.spots === 1 ? '' : 's') : '',
+  a.hasPrefs ? 'event preferences recorded' : '',
+].filter(Boolean).join('; ') + '. Removing them takes that with it' +
+  (a.points ? ', and ' + a.points + ' point' + (a.points === 1 ? '' : 's') + ' off their house' : '') + '.';
+
+function StudentsTab({ students, setStudents, houses, results, setResults, sheetMeta, setSheetMeta,
+                      events, dteam, prefs, scoring, onDropFromTeam, onDropPrefs, syncLive }) {
   const [draft, setDraft] = useState({ name: '', yearLevel: '5', gender: 'Female', house: '', homegroup: '', beepTest: '' });
   const [filterYear, setFilterYear] = useState('');
   const [filterHouse, setFilterHouse] = useState('');
@@ -638,6 +787,34 @@ function StudentsTab({ students, setStudents, houses, results, setResults, sheet
     setStudents(students.concat([{ ...draft, id: uid('s'), name: draft.name.trim() }]));
     setDraft({ ...draft, name: '', homegroup: '', beepTest: '' });
   };
+
+  /*
+   * Everything a delete needs to look at, in a ref rather than in the closure:
+   * removeStudent has to keep one identity for the whole session or StudentRow's
+   * memo stops holding and typing a name re-renders all 373 rows.
+   */
+  const attachContext = useRef({});
+  attachContext.current = { results, sheetMeta, dteam, prefs, events, scoring, houses };
+
+  /*
+   * The flag shown against each row. Keyed on ids only, so that typing in a
+   * name — which changes `students` every keystroke — does not rebuild it and
+   * knock every row out of its memo.
+   */
+  const attachMap = useMemo(() => {
+    const m = {};
+    const ctx = { results, sheetMeta, dteam, prefs, events, scoring };
+    const touched = new Set();
+    (results || []).forEach(r => touched.add(r.studentId));
+    Object.keys(sheetMeta || {}).forEach(k => ((sheetMeta[k] || {}).places || []).forEach(sid => sid && touched.add(sid)));
+    Object.keys(dteam || {}).forEach(k => {
+      const raw = dteam[k];
+      (Array.isArray(raw) ? raw : (raw && raw.ids) || []).forEach(sid => sid && touched.add(sid));
+    });
+    Object.keys(prefs || {}).forEach(sid => touched.add(sid));
+    touched.forEach(sid => { m[sid] = attachmentsOfStudent(sid, ctx); });
+    return m;
+  }, [results, sheetMeta, dteam, prefs, events, scoring]);
 
   /*
    * The same child imported twice appears twice on every recording sheet and is
@@ -737,9 +914,56 @@ function StudentsTab({ students, setStudents, houses, results, setResults, sheet
     setStudents(prev => prev.map(s => s.id === id ? { ...s, ...changes } : s));
   }, [setStudents]);
 
+  /*
+   * Removing a student takes their results, placings, district spot and
+   * preferences with them, and the confirm says so item by item before it
+   * happens. Leaving them behind was worse than it looked: an orphaned placing
+   * still sits in the sheet but no longer matches a student, so it stops
+   * scoring and the house loses those points with nothing on screen to explain
+   * it. Either way the points go — this way it is said first.
+   */
   const removeStudent = useCallback((s) => {
-    if (confirm('Remove ' + s.name + '?')) setStudents(prev => prev.filter(x => x.id !== s.id));
-  }, [setStudents]);
+    const a = attachmentsOfStudent(s.id, attachContext.current);
+    const house = (attachContext.current.houses.find(h => h.id === s.house) || {}).name;
+    if (!a.any) {
+      if (!confirm('Remove ' + s.name + '?\n\nNothing is recorded against them.')) return;
+    } else {
+      const detail = listLines([
+        a.results ? a.results + ' recorded result' + (a.results === 1 ? '' : 's') : '',
+        a.placings.length
+          ? a.placings.length + ' placing' + (a.placings.length === 1 ? '' : 's') + ' — ' +
+            a.placings.map(p => ordinal(p.place) + ' in ' + p.event).join(', ')
+          : '',
+        a.spots ? a.spots + ' district team spot' + (a.spots === 1 ? '' : 's') : '',
+        a.hasPrefs ? 'their event preferences' : '',
+      ]);
+      if (!confirm(
+        'Remove ' + s.name + '?\n\n' +
+        'This also removes:\n' + detail + '\n\n' +
+        (a.points
+          ? (house || 'Their house') + ' loses ' + a.points + ' point' + (a.points === 1 ? '' : 's') +
+            ' from those placings.\n\n'
+          : '') +
+        'It cannot be undone. Take a backup from the Import tab first if you are not sure.')) return;
+    }
+
+    if (a.results) setResults(prev => prev.filter(r => r.studentId !== s.id));
+    if (a.placings.length) {
+      setSheetMeta(prev => {
+        const next = {};
+        Object.keys(prev).forEach(k => {
+          const m = prev[k];
+          next[k] = ((m.places || []).indexOf(s.id) >= 0)
+            ? { ...m, places: (m.places || []).map(sid => sid === s.id ? '' : sid) }
+            : m;
+        });
+        return next;
+      });
+    }
+    if (a.spots) onDropFromTeam(s.id);
+    if (a.hasPrefs) onDropPrefs(s.id);
+    setStudents(prev => prev.filter(x => x.id !== s.id));
+  }, [setStudents, setResults, setSheetMeta, onDropFromTeam, onDropPrefs]);
 
   const noteEditing = useCallback((id) => setEditingId(id), []);
 
@@ -789,9 +1013,26 @@ function StudentsTab({ students, setStudents, houses, results, setResults, sheet
       const yr = bulkTarget.slice(3);
       match = (s) => (s.yearLevel || '') === yr;
     }
+    const moving = students.filter(s => match(s) && (s.yearLevel || '') !== bulkYear);
     const count = students.filter(match).length;
     if (!count) return alert('That matches nobody.');
-    if (!confirm('Move ' + count + ' student' + (count === 1 ? '' : 's') + ' to Year ' + bulkYear + '?')) return;
+
+    /*
+     * A year level is half of a division, so moving one moves the student to a
+     * different sheet. Anything already marked against them on the old sheet
+     * stays where it is and stops counting — same silent loss as deleting them,
+     * so it is counted and said first.
+     */
+    const affected = moving.filter(s => (attachMap[s.id] || {}).any);
+    const points = affected.reduce((n, s) => n + (attachMap[s.id].points || 0), 0);
+    const warning = affected.length
+      ? '\n\n' + affected.length + ' of them ' + (affected.length === 1 ? 'has' : 'have') +
+        ' results or placings already recorded in their current year' +
+        (points ? ', worth ' + points + ' point' + (points === 1 ? '' : 's') : '') +
+        '. Those stay on the sheet they were recorded on, where they will no longer match' +
+        ' the student — check the Results tab for those events afterwards.'
+      : '';
+    if (!confirm('Move ' + count + ' student' + (count === 1 ? '' : 's') + ' to Year ' + bulkYear + '?' + warning)) return;
     setStudents(students.map(s => match(s) ? { ...s, yearLevel: bulkYear } : s));
     setBulkTarget('');
   };
@@ -897,7 +1138,7 @@ function StudentsTab({ students, setStudents, houses, results, setResults, sheet
             </thead>
             <tbody>
               {shown.map(s => (
-                <StudentRow key={s.id} s={s} houses={houses}
+                <StudentRow key={s.id} s={s} houses={houses} attached={attachMap[s.id]}
                   onPatch={patch} onRemove={removeStudent} onFocus={noteEditing} />
               ))}
             </tbody>
@@ -2376,6 +2617,36 @@ function App() {
     }, [])
   );
 
+  /*
+   * A removed student has to come off the district sheet and out of the
+   * preferences too, or they linger as an id nothing resolves — a blank slot
+   * that cannot be explained. Both live up here, so the Students tab is handed
+   * these rather than the state itself. Stable identities: StudentRow is
+   * memoised and its callbacks have to stay put.
+   */
+  const dropFromTeam = useCallback((studentId) => {
+    setDteam(prev => {
+      const next = {};
+      Object.keys(prev).forEach(k => {
+        const raw = prev[k];
+        const ids = Array.isArray(raw) ? raw : (raw && raw.ids) || [];
+        if (ids.indexOf(studentId) < 0) { next[k] = raw; return; }
+        const cleared = ids.map(id => id === studentId ? '' : id);
+        next[k] = Array.isArray(raw) ? cleared : { ...raw, ids: cleared };
+      });
+      return next;
+    });
+  }, [setDteam]);
+
+  const dropPrefs = useCallback((studentId) => {
+    setPrefs(prev => {
+      if (!prev[studentId]) return prev;
+      const next = { ...prev };
+      delete next[studentId];
+      return next;
+    });
+  }, [setPrefs]);
+
   // One file with everything in it — the only defence against a browser that
   // clears its storage, or against opening the tool on a different URL.
   const downloadBackup = () => {
@@ -2395,9 +2666,29 @@ function App() {
       if (!parsed || parsed.format !== 'athletics-manager' || !parsed.data) {
         return alert('That is not a backup from this tool.');
       }
-      const n = (parsed.data.ath_students || []).length;
-      if (!confirm('Restore ' + n + ' students and everything else from ' +
-        (parsed.savedAt || 'this backup').slice(0, 10) + '?\n\nThis replaces what is in the browser now.')) return;
+      /*
+       * A restore is the most destructive thing here — it replaces everything,
+       * including work done since the backup was taken. So both sides are put
+       * side by side first, and a restore that would lose results says so in
+       * as many words.
+       */
+      const inFile = {
+        students: (parsed.data.ath_students || []).length,
+        results: (parsed.data.ath_results || []).length,
+        sheets: Object.keys(parsed.data.ath_sheetmeta || {}).length,
+      };
+      const now = { students: students.length, results: results.length, sheets: Object.keys(sheetMeta || {}).length };
+      const line = (what) => '  ' + what + ': ' + now[what] + ' here now → ' + inFile[what] + ' in the file';
+      const losing = ['results', 'sheets'].filter(k => inFile[k] < now[k]);
+      if (!confirm(
+        'Restore the backup taken ' + (parsed.savedAt || 'this backup').slice(0, 10) + '?\n\n' +
+        line('students') + '\n' + line('results') + '\n' + line('sheets') + '\n\n' +
+        (losing.length
+          ? 'The file holds FEWER ' + losing.join(' and ') + ' than this browser does. ' +
+            'Restoring throws away the difference — anything typed in since the backup was ' +
+            'taken. Download a backup of what is here now before going ahead.\n\n'
+          : '') +
+        'This replaces everything in the browser and cannot be undone.')) return;
       STORE_KEYS.forEach(k => {
         if (parsed.data[k] === null || parsed.data[k] === undefined) store.removeItem(k);
         else store.setItem(k, JSON.stringify(parsed.data[k]));
@@ -2420,7 +2711,14 @@ function App() {
           <div className="muted">House athletics, records and the district team · P–6</div>
         </div>
         <button className="btn-ghost noprint" onClick={() => {
-          if (!confirm('Erase every event, student and result stored in this browser?')) return;
+          const sheetsIn = Object.keys(sheetMeta || {}).filter(k => (sheetMeta[k] || {}).received).length;
+          if (!confirm('Erase everything stored in this browser?\n\n' +
+            'That is ' + students.length + ' student' + (students.length === 1 ? '' : 's') + ', ' +
+            results.length + ' recorded result' + (results.length === 1 ? '' : 's') + ' and ' +
+            sheetsIn + ' sheet' + (sheetsIn === 1 ? '' : 's') + ' entered.\n\n' +
+            'It cannot be undone.' +
+            (sync.live ? '\n\nSync is on: the server keeps its copy, so this browser will pull it ' +
+              'back the next time it connects.' : ''))) return;
           if (confirm('Download a backup first? Strongly recommended — this cannot be undone.')) downloadBackup();
           STORE_KEYS.forEach(k => store.removeItem(k));
           location.reload();
@@ -2433,11 +2731,16 @@ function App() {
         ))}
       </div>
 
-      {tab === 'events'   && <EventsTab   events={events} setEvents={setEvents} />}
+      {tab === 'events'   && <EventsTab   events={events} setEvents={setEvents}
+                               results={results} sheetMeta={sheetMeta} dteam={dteam}
+                               students={students} houses={houses} scoring={scoring} />}
       {tab === 'houses'   && <HousesTab   houses={houses} setHouses={setHouses} students={students} events={events} results={results} sheetMeta={sheetMeta} scoring={scoring} setScoring={setScoring} />}
       {tab === 'students' && <StudentsTab students={students} setStudents={setStudents} houses={houses}
                                results={results} setResults={setResults}
-                               sheetMeta={sheetMeta} setSheetMeta={setSheetMeta} syncLive={sync.live} />}
+                               sheetMeta={sheetMeta} setSheetMeta={setSheetMeta}
+                               events={events} dteam={dteam} prefs={prefs} scoring={scoring}
+                               onDropFromTeam={dropFromTeam} onDropPrefs={dropPrefs}
+                               syncLive={sync.live} />}
       {tab === 'import'   && <ImportTab   students={students} setStudents={setStudents} houses={houses} setHouses={setHouses}
                                onBackup={downloadBackup} onRestore={restoreBackup} />}
       {tab === 'results'  && <ResultsTab  events={events} students={students} results={results} setResults={setResults} houses={houses}

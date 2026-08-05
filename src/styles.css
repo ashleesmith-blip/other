@@ -34,6 +34,9 @@
   .tab { background: transparent; color: #55606b; border-radius: 6px 6px 0 0; padding: 10px 16px; font-weight: 600; }
   .tab.on { background: #2563eb; color: #fff; }
   .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  /* Flags a row that has data hanging off it, so what a Remove would take is
+     visible before the button is pressed. Hovering gives the full list. */
+  .pill.attached { background: #fef3c7; color: #92400e; margin-right: 6px; cursor: help; white-space: nowrap; }
   .muted { color: #6b7681; font-size: 13px; }
   .warn { background: #fef3c7; border: 1px solid #fcd34d; border-radius: 8px; padding: 12px; margin-bottom: 14px; font-size: 13px; }
   .good { background: #dcfce7; border: 1px solid #86efac; border-radius: 8px; padding: 12px; margin-bottom: 14px; font-size: 13px; }

@@ -162,6 +162,20 @@ function diffById(localRows, shadowRows) {
  */
 const PROTECTED_FROM_DELETE = ['students', 'houses', 'events'];
 
+/*
+ * Results and sheets do get removed on the server, because clearing a mistyped
+ * result has to reach the other devices. But a push that would remove a lot of
+ * them at once is not editing, it is a wipe — a browser that has lost its
+ * storage, or one that was restored from an old backup, syncing its emptiness
+ * outwards over everyone else's afternoon of typing.
+ *
+ * Past this many, the delete is skipped and reported instead, the same way a
+ * removed student is. Nothing is lost either way: the rows stay on the server
+ * and come back on the next pull. Deliberately clearing more than this is done
+ * in the Supabase SQL editor, where it takes intent.
+ */
+const BULK_DELETE_LIMIT = 25;
+
 async function pushChanges(cfg, local, shadow) {
   const touched = [];
   const skipped = [];
@@ -172,8 +186,13 @@ async function pushChanges(cfg, local, shadow) {
     const { changed, removed } = diffById((localList || []).map(toRow), (shadowList || []).map(toRow));
     if (changed.length) up[name] = changed;
     if (removed.length) {
-      if (PROTECTED_FROM_DELETE.indexOf(name) >= 0) skipped.push(removed.length + ' ' + name + ' not removed on the server');
-      else del[name] = removed;
+      if (PROTECTED_FROM_DELETE.indexOf(name) >= 0) {
+        skipped.push(removed.length + ' ' + name + ' not removed on the server');
+      } else if (removed.length > BULK_DELETE_LIMIT) {
+        skipped.push(removed.length + ' ' + name + ' disappeared from this browser and were left on the server — pull to get them back');
+      } else {
+        del[name] = removed;
+      }
     }
   };
 
@@ -188,7 +207,11 @@ async function pushChanges(cfg, local, shadow) {
     const before = (shadow.sheetMeta || {})[k];
     if (!before || !sameJson(before, local.sheetMeta[k])) sheetRows.push(toRowSheet(k, local.sheetMeta[k]));
   });
-  const goneSheets = Object.keys(shadow.sheetMeta || {}).filter(k => !(local.sheetMeta || {})[k]);
+  let goneSheets = Object.keys(shadow.sheetMeta || {}).filter(k => !(local.sheetMeta || {})[k]);
+  if (goneSheets.length > BULK_DELETE_LIMIT) {
+    skipped.push(goneSheets.length + ' sheets disappeared from this browser and were left on the server — pull to get them back');
+    goneSheets = [];
+  }
 
   const settingRows = [];
   [['scoring', local.scoring, shadow.scoring],
@@ -294,33 +317,53 @@ function useSupabaseSync(state, apply) {
     return true;
   };
 
+  /*
+   * Both buttons hold `busy` for as long as they run.
+   *
+   * Without it the ten-second poll could fire in the middle of an upload and
+   * read the server halfway through: an upload writes parents before children,
+   * so a poll landing between them sees every student and no results. It would
+   * then report that on the Sync tab — 373 students, 0 results, which reads
+   * exactly like the data being lost — and, worse, apply that half-written
+   * state over the browser that was in the middle of sending it.
+   */
   const pull = useCallback(async (opts) => {
     const cfg = (opts && opts.config) || config;
     if (!cfg.url || !cfg.key) throw new Error('Project URL and anon key are both needed.');
     setStatus(s => ({ ...s, phase: 'working', error: null }));
-    const remote = await pullAll(cfg);
-    setRemoteCounts(countsOf(remote));
-    if (!applyRemote(remote, true)) return null;
-    shadow.current = remote;
-    setStatus({ phase: 'ok', at: new Date(), error: null,
-      note: 'pulled ' + remote.students.length + ' students, ' + remote.results.length + ' results' });
-    return remote;
+    busy.current = true;
+    try {
+      const remote = await pullAll(cfg);
+      setRemoteCounts(countsOf(remote));
+      if (!applyRemote(remote, true)) return null;
+      shadow.current = remote;
+      setStatus({ phase: 'ok', at: new Date(), error: null,
+        note: 'pulled ' + remote.students.length + ' students, ' + remote.results.length + ' results' });
+      return remote;
+    } finally {
+      busy.current = false;
+    }
   }, [config]);
 
   const pushAll = useCallback(async (opts) => {
     const cfg = (opts && opts.config) || config;
     if (!cfg.url || !cfg.key) throw new Error('Project URL and anon key are both needed.');
     setStatus(s => ({ ...s, phase: 'working', error: null }));
-    // An empty shadow makes every local row count as new, which is what a first
-    // upload wants.
-    const touched = await pushChanges(cfg, snapshot(stateRef.current),
-      { houses: [], events: [], students: [], results: [], sheetMeta: {} });
-    shadow.current = snapshot(stateRef.current);
-    // The server now holds what was just sent; saying so immediately beats
-    // showing zeroes until the next poll comes round.
-    setRemoteCounts(countsOf(shadow.current));
-    setStatus({ phase: 'ok', at: new Date(), error: null,
-      note: touched.length ? 'sent ' + touched.join(', ') : 'nothing to send' });
+    busy.current = true;
+    try {
+      // An empty shadow makes every local row count as new, which is what a first
+      // upload wants.
+      const touched = await pushChanges(cfg, snapshot(stateRef.current),
+        { houses: [], events: [], students: [], results: [], sheetMeta: {} });
+      shadow.current = snapshot(stateRef.current);
+      // The server now holds what was just sent; saying so immediately beats
+      // showing zeroes until the next poll comes round.
+      setRemoteCounts(countsOf(shadow.current));
+      setStatus({ phase: 'ok', at: new Date(), error: null,
+        note: touched.length ? 'sent ' + touched.join(', ') : 'nothing to send' });
+    } finally {
+      busy.current = false;
+    }
   }, [config]);
 
   // Push local edits, debounced so typing does not become one request per key.
