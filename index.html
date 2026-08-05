@@ -66,6 +66,10 @@
 .sheet td:nth-child(4), .sheet td:nth-child(5) { border-left: 1px solid #e8ecef; }
 .sheet tr.blank td { height: 30px; }
 .sheet tr.blank td:nth-child(2) { border-bottom: 1px solid #c8ced4; }
+/* Closes off a house block: the marshal writes the head count in the box, and
+   that number goes straight into the participation field on the Results tab. */
+.sheet tr.tally td { height: 30px; background: #f4f6f8; border-top: 2px solid #1a2027; font-size: 13px; }
+.tallybox { display: inline-block; width: 100%; min-width: 90px; border-bottom: 2px solid #1a2027; height: 18px; }
 
 @media print {
   .tabs, .topbar, .noprint { display: none !important; }
@@ -86,6 +90,8 @@
   .sheet th, .sheet td { padding: 3px 8px; }
   .sheet td { height: 20px; font-size: 13px; }
   .sheet tr.blank td { height: 22px; }
+  .sheet tr.tally td { height: 22px; font-size: 12px; background: #eceff2 !important;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .sheet-title { font-size: 15px; }
   .sheet-no { padding: 2px 10px; min-width: 56px; }
   .sheet-no-value { font-size: 22px; }
@@ -1132,6 +1138,25 @@ function usePersistentState(key, fallback) {
   return [value, setValue];
 }
 const YEARS = ['Prep', '1', '2', '3', '4', '5', '6'];
+const ordinal = n => ['1st', '2nd', '3rd', '4th'][n - 1] || n + 'th';
+
+/*
+ * House blocks run in the order the houses are listed on the Houses tab — the
+ * same order as the participation boxes on the Results tab, left to right. It
+ * used to be alphabetical, which put Flinders first on the paper and second-last
+ * in the boxes, so counting off a sheet meant crossing the row every time.
+ *
+ * The recording sheet and the Results list share this, so a sheet can be typed
+ * straight down the page without hunting for names.
+ */
+const byHouseThenName = houses => {
+  const rank = {};
+  (houses || []).forEach((h, i) => {
+    rank[h.id] = i;
+  });
+  const at = s => rank[s.house] === undefined ? 999 : rank[s.house];
+  return (a, b) => at(a) - at(b) || a.name.localeCompare(b.name);
+};
 const DEFAULT_HOUSES = [{
   id: 'h1',
   name: 'Freeman',
@@ -2630,15 +2655,41 @@ function ResultsTab({
    * won. A student can only hold one place and a place only one student, so
    * assigning either end clears whatever it displaces — duplicates are not
    * possible to create.
+   *
+   * Displacing somebody is the dangerous half of that. Typing a 1 into the wrong
+   * row used to take 1st off whoever held it without a word, and nothing on the
+   * screen said so — the other row simply went blank further up the page. So the
+   * swap is now named before it happens, and an Undo stays on screen after it in
+   * case the confirm was clicked through.
    */
+  const [placeUndo, setPlaceUndo] = useState(null);
   const assignPlace = (studentId, value) => {
     const places = (meta.places || ['', '', '', '']).slice();
-    for (let i = 0; i < places.length; i++) if (places[i] === studentId) places[i] = '';
     const n = parseInt(value, 10);
-    if (n >= 1 && n <= places.length) places[n - 1] = studentId;
+    const valid = n >= 1 && n <= places.length;
+    const displaced = valid && places[n - 1] && places[n - 1] !== studentId ? places[n - 1] : '';
+    const nameOf = id => (studentsById[id] || {}).name || 'someone else';
+    if (displaced) {
+      const ok = confirm(ordinal(n) + ' is currently ' + nameOf(displaced) + '.\n\n' + 'Give ' + ordinal(n) + ' to ' + nameOf(studentId) + ' instead?\n' + nameOf(displaced) + ' will be left without a place.');
+      if (!ok) return;
+    }
+    const before = places.slice();
+    for (let i = 0; i < places.length; i++) if (places[i] === studentId) places[i] = '';
+    if (valid) places[n - 1] = studentId;
     writeMeta({
       places
     });
+    setPlaceUndo(displaced ? {
+      key: metaKey,
+      places: before,
+      text: nameOf(studentId) + ' took ' + ordinal(n) + ' from ' + nameOf(displaced) + ', who now has no place.'
+    } : null);
+  };
+  const undoPlace = () => {
+    writeMeta({
+      places: placeUndo.places
+    });
+    setPlaceUndo(null);
   };
   const placeOf = studentId => {
     const i = (meta.places || []).indexOf(studentId);
@@ -2668,14 +2719,23 @@ function ResultsTab({
     setGender(hit.gender);
   };
   const sheetLookup = sheetIndex.byNumber[parseInt(sheetNo, 10)];
-
-  // Same order as the printed recording sheet — by house, then name — so results
-  // can be typed straight down the page without hunting for each name.
   const houseName = id => (houses.find(h => h.id === id) || {}).name || '';
 
-  // Same order as the printed recording sheet — by house, then name — so results
-  // can be typed straight down the page without hunting for each name.
-  const inDivision = students.filter(s => s.yearLevel === year && s.gender === gender).sort((a, b) => (houseName(a.house) + a.name).localeCompare(houseName(b.house) + b.name));
+  // Same order as the printed recording sheet — see byHouseThenName.
+  const inDivision = students.filter(s => s.yearLevel === year && s.gender === gender).sort(byHouseThenName(houses));
+
+  /*
+   * Finding one child in a list of sixty. The search narrows the sheet below
+   * only — the participation counts and "Fill from class list" still work off
+   * the whole division, so a filter left in the box cannot quietly undercount a
+   * house. If the name is not in this division but is somewhere else, say where
+   * and offer to jump: on carnival day a sheet lands in the wrong pile often
+   * enough that hunting for the right division by hand is the slow part.
+   */
+  const [find, setFind] = useState('');
+  const needle = find.trim().toLowerCase();
+  const shown = needle ? inDivision.filter(s => s.name.toLowerCase().includes(needle)) : inDivision;
+  const elsewhere = needle && shown.length === 0 ? students.filter(s => s.name.toLowerCase().includes(needle)).slice(0, 6) : [];
   const ranked = event ? rankFor(results, event.id, division, event.scoring, studentsById) : [];
 
   /*
@@ -2920,7 +2980,81 @@ function ResultsTab({
     style: {
       fontWeight: 400
     }
-  }, ' ', "\xB7 ", event.scoring === 'lower' ? 'fastest wins' : 'furthest wins', " \xB7 enter in ", event.unit, event.scoring === 'lower' ? ' (or m:ss.s)' : '')), inDivision.length === 0 ? /*#__PURE__*/React.createElement("p", {
+  }, ' ', "\xB7 ", event.scoring === 'lower' ? 'fastest wins' : 'furthest wins', " \xB7 enter in ", event.unit, event.scoring === 'lower' ? ' (or m:ss.s)' : '')), placeUndo && placeUndo.key === metaKey && /*#__PURE__*/React.createElement("div", {
+    className: "warn noprint",
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 10,
+      flexWrap: 'wrap'
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      flex: '1 1 240px'
+    }
+  }, placeUndo.text), /*#__PURE__*/React.createElement("button", {
+    className: "btn-ghost btn-sm",
+    style: {
+      flex: '0 0 auto'
+    },
+    onClick: undoPlace
+  }, "Undo"), /*#__PURE__*/React.createElement("button", {
+    className: "btn-ghost btn-sm",
+    style: {
+      flex: '0 0 auto'
+    },
+    onClick: () => setPlaceUndo(null)
+  }, "Dismiss")), inDivision.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "row noprint",
+    style: {
+      alignItems: 'flex-start'
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    className: "fld",
+    style: {
+      flex: '1 1 260px'
+    }
+  }, "Find a student", /*#__PURE__*/React.createElement("input", {
+    type: "text",
+    value: find,
+    placeholder: "type part of a name",
+    "aria-label": "Find a student on this sheet",
+    onChange: e => setFind(e.target.value)
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: '2 1 260px',
+      paddingBottom: 10
+    },
+    className: "muted"
+  }, !needle ? 'Narrows the list below. The house points above always count the whole division.' : shown.length > 0 ? /*#__PURE__*/React.createElement("span", null, "Showing ", /*#__PURE__*/React.createElement("strong", null, shown.length), " of ", inDivision.length, ".", ' ', /*#__PURE__*/React.createElement("button", {
+    className: "linkish",
+    onClick: () => setFind('')
+  }, "show all")) : /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: '#b45309'
+    }
+  }, "Nobody in Year ", year, " ", gender, " matches \u201C", find.trim(), "\u201D.", ' ', /*#__PURE__*/React.createElement("button", {
+    className: "linkish",
+    onClick: () => setFind('')
+  }, "show all")))), elsewhere.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "warn noprint"
+  }, /*#__PURE__*/React.createElement("strong", null, "That name is in ", elsewhere.length === 1 ? 'another division' : 'other divisions', ":"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      gap: 8,
+      flexWrap: 'wrap',
+      marginTop: 6
+    }
+  }, elsewhere.map(s => /*#__PURE__*/React.createElement("button", {
+    key: s.id,
+    className: "btn-ghost btn-sm",
+    onClick: () => {
+      setYear(s.yearLevel);
+      setGender(s.gender);
+      setSheetNo('');
+      setFind('');
+    }
+  }, s.name, " \u2014 Year ", s.yearLevel, " ", s.gender)))), inDivision.length === 0 ? /*#__PURE__*/React.createElement("p", {
     className: "muted"
   }, "No students in Year ", year, " ", gender, ". Check the Students tab.") : /*#__PURE__*/React.createElement("div", {
     className: "scroll"
@@ -2932,7 +3066,7 @@ function ResultsTab({
     style: {
       width: 140
     }
-  }, "Result"))), /*#__PURE__*/React.createElement("tbody", null, inDivision.map(s => {
+  }, "Result"))), /*#__PURE__*/React.createElement("tbody", null, shown.map(s => {
     const r = ranked.find(x => x.studentId === s.id);
     const mine = placeOf(s.id);
     // Once anyone is named, the named set governs; until then the
@@ -3047,6 +3181,20 @@ function DistrictTab({
     });
     return byYear;
   }, [events, students]);
+
+  /*
+   * Year levels can be switched off — seven years of programme is a long scroll
+   * when only one is being worked on, and a hidden year is left out of print
+   * too, so a single year can be run off for the teacher taking it. Hiding never
+   * changes the allocation: rows still exist and still hold their spots.
+   */
+  const [hiddenYears, setHiddenYears] = useState({});
+  const toggleYear = y => setHiddenYears(h => ({
+    ...h,
+    [y]: !h[y]
+  }));
+  const yearsInProgramme = YEARS.filter(y => programme[y]);
+  const shownYears = yearsInProgramme.filter(y => !hiddenYears[y]);
   const rowKey = r => divKey(r.event.id, r.division);
 
   // Stored as { ids, marks }. Earlier versions stored a bare array of ids, so
@@ -3339,7 +3487,7 @@ function DistrictTab({
     className: "card"
   }, /*#__PURE__*/React.createElement("div", {
     className: "warn"
-  }, /*#__PURE__*/React.createElement("strong", null, alloc.needsChoice.length, " student", alloc.needsChoice.length === 1 ? '' : 's', " won more than ", settings.maxPerStudent, " events."), ' ', "Tick the ", settings.maxPerStudent, " each will run. Every event they let go passes to the next finisher automatically, and the tables below update as you go."), alloc.needsChoice.map(o => {
+  }, /*#__PURE__*/React.createElement("strong", null, alloc.needsChoice.length, " student", alloc.needsChoice.length === 1 ? '' : 's', ' ', settings.spotsPerEvent === 1 ? 'came 1st in' : 'finished in the top ' + settings.spotsPerEvent + ' of', ' ', "more than ", settings.maxPerStudent, " event", settings.maxPerStudent === 1 ? '' : 's', "."), ' ', "Tick the ", settings.maxPerStudent, " each will run. Every event they let go passes to the next finisher automatically, and the tables below update as you go."), alloc.needsChoice.map(o => {
     const chosen = prefs[o.studentId] && prefs[o.studentId].chosen || [];
     return /*#__PURE__*/React.createElement("div", {
       key: o.studentId,
@@ -3378,7 +3526,7 @@ function DistrictTab({
       onChange: e => setChosen(o.studentId, w.eventId, e.target.checked)
     }), ' ', eventName(w.eventId), " ", /*#__PURE__*/React.createElement("span", {
       className: "muted"
-    }, "(", w.place === 1 ? '1st' : w.place === 2 ? '2nd' : w.place + 'th', ")")))));
+    }, "(", ordinal(w.place), ")")))));
   })), /*#__PURE__*/React.createElement("div", {
     className: "card"
   }, /*#__PURE__*/React.createElement("h3", null, "Team sheet"), /*#__PURE__*/React.createElement("p", {
@@ -3394,7 +3542,57 @@ function DistrictTab({
     }
   }, "i"), " to see who came 1st through 4th and what they did."), Object.keys(programme).length === 0 && /*#__PURE__*/React.createElement("p", {
     className: "muted"
-  }, "Load the class list on the Import tab first."), YEARS.filter(y => programme[y]).map(y => /*#__PURE__*/React.createElement("div", {
+  }, "Load the class list on the Import tab first."), yearsInProgramme.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "noprint",
+    style: {
+      display: 'flex',
+      gap: 8,
+      flexWrap: 'wrap',
+      alignItems: 'center',
+      margin: '0 0 16px',
+      paddingBottom: 14,
+      borderBottom: '1px solid #e8ecef'
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "muted",
+    style: {
+      fontSize: 13
+    }
+  }, "Show:"), yearsInProgramme.map(y => {
+    const on = !hiddenYears[y];
+    return /*#__PURE__*/React.createElement("button", {
+      key: y,
+      className: "btn-ghost btn-sm",
+      role: "switch",
+      "aria-checked": on,
+      "aria-label": 'Year ' + y,
+      onClick: () => toggleYear(y),
+      style: {
+        background: on ? '#e0e7ff' : 'transparent',
+        borderColor: on ? '#c7d2fe' : undefined,
+        color: on ? '#1e3a8a' : '#8a949e',
+        fontWeight: on ? 600 : 400
+      }
+    }, on ? '✓ ' : '', "Year ", y);
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      flex: '1 1 auto'
+    }
+  }), /*#__PURE__*/React.createElement("button", {
+    className: "btn-ghost btn-sm",
+    onClick: () => setHiddenYears({})
+  }, "All"), /*#__PURE__*/React.createElement("button", {
+    className: "btn-ghost btn-sm",
+    onClick: () => {
+      const h = {};
+      yearsInProgramme.forEach(y => {
+        h[y] = true;
+      });
+      setHiddenYears(h);
+    }
+  }, "None")), yearsInProgramme.length > 0 && shownYears.length === 0 && /*#__PURE__*/React.createElement("p", {
+    className: "muted"
+  }, "Every year level is hidden \u2014 press ", /*#__PURE__*/React.createElement("strong", null, "All"), " to bring them back."), shownYears.map(y => /*#__PURE__*/React.createElement("div", {
     key: y,
     style: {
       marginBottom: 22
@@ -3631,6 +3829,14 @@ function SheetsTab({
    * students, which is far more than fits on A4, so each division is split into
    * pages of `rowsPerPage` and every page gets its own heading and marshal line.
    * The write-in blanks go on the end, so they land on the final page.
+   *
+   * Rows are tagged rather than being bare students, because the sheet carries
+   * three kinds of line: a student, a write-in blank, and a tally line closing
+   * off each house. The tally is what the marshal writes the head count on, and
+   * it is the number the scorer types into the participation box on the Results
+   * tab — so it sits under the house it counts, while the names are still fresh
+   * on the page. Only the student and blank lines are numbered, so a tally in
+   * the middle doesn't put the numbering out.
    */
   const sheets = useMemo(() => {
     const out = [];
@@ -3643,10 +3849,36 @@ function SheetsTab({
           const roll = students.filter(s => s.yearLevel === y && (s.gender || 'Mixed') === g);
           if (!roll.length) return;
           const ranked = rankFor(results, ev.id, y + ' ' + g, ev.scoring, studentsById);
-          const order = withResults ? ranked.map(r => studentsById[r.studentId]).concat(roll.filter(s => !ranked.some(r => r.studentId === s.id))) : roll.slice().sort((a, b) => (houseName(a.house) + a.name).localeCompare(houseName(b.house) + b.name));
-          const entries = order.concat(Array.from({
-            length: blankRows
-          }, () => null));
+          const order = withResults ? ranked.map(r => studentsById[r.studentId]).concat(roll.filter(s => !ranked.some(r => r.studentId === s.id))) : roll.slice().sort(byHouseThenName(houses));
+          const entries = [];
+          let no = 0;
+          order.forEach((s, i) => {
+            entries.push({
+              kind: 'student',
+              student: s,
+              no: ++no
+            });
+            // A filled-in sheet is sorted by placing, not by house, so there are
+            // no house blocks to close off.
+            if (withResults) return;
+            const next = order[i + 1];
+            if (!next || next.house !== s.house) {
+              entries.push({
+                kind: 'tally',
+                house: s.house,
+                onList: order.filter(x => x.house === s.house).length
+              });
+            }
+          });
+          for (let i = 0; i < blankRows; i++) entries.push({
+            kind: 'blank',
+            no: ++no
+          });
+          if (blankRows > 0 && !withResults) entries.push({
+            kind: 'tally',
+            house: null,
+            onList: 0
+          });
           const pageCount = Math.max(1, Math.ceil(entries.length / rowsPerPage));
           for (let p = 0; p < pageCount; p++) {
             out.push({
@@ -3655,7 +3887,6 @@ function SheetsTab({
               gender: g,
               ranked,
               rows: entries.slice(p * rowsPerPage, (p + 1) * rowsPerPage),
-              offset: p * rowsPerPage,
               page: p + 1,
               pageCount
             });
@@ -3686,8 +3917,9 @@ function SheetsTab({
   };
   const exportSheetsCsv = () => {
     const rows = [['Sheet', 'Event', 'Year', 'Gender', 'Student', 'House', 'Result']];
-    sheets.forEach(sh => sh.rows.forEach(s => {
-      if (!s) return; // write-in blanks have no data to export
+    sheets.forEach(sh => sh.rows.forEach(row => {
+      if (row.kind !== 'student') return; // blanks and house tallies carry no data
+      const s = row.student;
       const hit = sh.ranked.find(r => r.studentId === s.id);
       rows.push([sheetIndex.byKey[divKey(sh.event.id, sh.year + ' ' + sh.gender)] || '', sh.event.name, sh.year, sh.gender, s.name, houseName(s.house), hit ? hit.result : '']);
     }));
@@ -3753,7 +3985,12 @@ function SheetsTab({
     style: {
       marginTop: 0
     }
-  }, "Each sheet is one A4 page and carries a ", /*#__PURE__*/React.createElement("strong", null, "sheet number"), " in the top corner \u2014 type that into the Results tab to jump straight to the right list. Only divisions that have students are numbered, so load the class list before printing. A division with more students than fits carries on across extra pages under the same sheet number, so nothing runs off the bottom. Up to ", MAX_ROWS_PER_A4, " rows clear an A4 page. The write-in rows are blank lines at the end for adding anyone not on the list."), /*#__PURE__*/React.createElement("label", {
+  }, "Each sheet is one A4 page and carries a ", /*#__PURE__*/React.createElement("strong", null, "sheet number"), " in the top corner \u2014 type that into the Results tab to jump straight to the right list. Only divisions that have students are numbered, so load the class list before printing. A division with more students than fits carries on across extra pages under the same sheet number, so nothing runs off the bottom. Up to ", MAX_ROWS_PER_A4, " rows clear an A4 page. The write-in rows are blank lines at the end for adding anyone not on the list."), /*#__PURE__*/React.createElement("p", {
+    className: "muted",
+    style: {
+      marginTop: 0
+    }
+  }, "Each house finishes with a ruled line for the marshal to write ", /*#__PURE__*/React.createElement("strong", null, "how many competed"), " \u2014 that is the number you type into the participation box on the Results tab, so the head count comes back on the paper rather than being guessed afterwards. Those lines take up room on the page, so a division with four houses fits four fewer names per sheet."), /*#__PURE__*/React.createElement("label", {
     style: {
       fontSize: 14,
       display: 'block',
@@ -3824,21 +4061,36 @@ function SheetsTab({
     style: {
       width: 76
     }
-  }, "Place"))), /*#__PURE__*/React.createElement("tbody", null, sh.rows.map((s, idx) => {
-    if (!s) {
+  }, "Place"))), /*#__PURE__*/React.createElement("tbody", null, sh.rows.map((row, idx) => {
+    if (row.kind === 'tally') {
+      return /*#__PURE__*/React.createElement("tr", {
+        className: "tally",
+        key: 'tally' + idx
+      }, /*#__PURE__*/React.createElement("td", null), /*#__PURE__*/React.createElement("td", {
+        colSpan: 2
+      }, row.house ? /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("strong", null, houseName(row.house)), " \u2014 how many competed?", /*#__PURE__*/React.createElement("span", {
+        className: "muted"
+      }, " (", row.onList, " on the list)")) : /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("strong", null, "Added by hand above"), " \u2014 how many, and for which house?")), /*#__PURE__*/React.createElement("td", {
+        colSpan: 2
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "tallybox"
+      })));
+    }
+    if (row.kind === 'blank') {
       return /*#__PURE__*/React.createElement("tr", {
         className: "blank",
         key: 'blank' + idx
       }, /*#__PURE__*/React.createElement("td", {
         className: "muted"
-      }, sh.offset + idx + 1), /*#__PURE__*/React.createElement("td", null), /*#__PURE__*/React.createElement("td", null), /*#__PURE__*/React.createElement("td", null), /*#__PURE__*/React.createElement("td", null));
+      }, row.no), /*#__PURE__*/React.createElement("td", null), /*#__PURE__*/React.createElement("td", null), /*#__PURE__*/React.createElement("td", null), /*#__PURE__*/React.createElement("td", null));
     }
+    const s = row.student;
     const hit = sh.ranked.find(r => r.studentId === s.id);
     return /*#__PURE__*/React.createElement("tr", {
       key: s.id
     }, /*#__PURE__*/React.createElement("td", {
       className: "muted"
-    }, sh.offset + idx + 1), /*#__PURE__*/React.createElement("td", null, s.name), /*#__PURE__*/React.createElement("td", {
+    }, row.no), /*#__PURE__*/React.createElement("td", null, s.name), /*#__PURE__*/React.createElement("td", {
       className: "muted"
     }, houseName(s.house)), /*#__PURE__*/React.createElement("td", null, withResults && hit ? hit.result : ''), /*#__PURE__*/React.createElement("td", null, withResults && hit ? hit.place : ''));
   }))))));

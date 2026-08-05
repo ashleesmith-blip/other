@@ -58,6 +58,10 @@
 .sheet td:nth-child(4), .sheet td:nth-child(5) { border-left: 1px solid #e8ecef; }
 .sheet tr.blank td { height: 30px; }
 .sheet tr.blank td:nth-child(2) { border-bottom: 1px solid #c8ced4; }
+/* Closes off a house block: the marshal writes the head count in the box, and
+   that number goes straight into the participation field on the Results tab. */
+.sheet tr.tally td { height: 30px; background: #f4f6f8; border-top: 2px solid #1a2027; font-size: 13px; }
+.tallybox { display: inline-block; width: 100%; min-width: 90px; border-bottom: 2px solid #1a2027; height: 18px; }
 
 @media print {
   .tabs, .topbar, .noprint { display: none !important; }
@@ -78,6 +82,8 @@
   .sheet th, .sheet td { padding: 3px 8px; }
   .sheet td { height: 20px; font-size: 13px; }
   .sheet tr.blank td { height: 22px; }
+  .sheet tr.tally td { height: 22px; font-size: 12px; background: #eceff2 !important;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .sheet-title { font-size: 15px; }
   .sheet-no { padding: 2px 10px; min-width: 56px; }
   .sheet-no-value { font-size: 22px; }

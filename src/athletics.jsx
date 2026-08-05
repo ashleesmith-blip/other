@@ -46,6 +46,24 @@ function usePersistentState(key, fallback) {
 
 const YEARS = ['Prep', '1', '2', '3', '4', '5', '6'];
 
+const ordinal = (n) => ['1st', '2nd', '3rd', '4th'][n - 1] || (n + 'th');
+
+/*
+ * House blocks run in the order the houses are listed on the Houses tab — the
+ * same order as the participation boxes on the Results tab, left to right. It
+ * used to be alphabetical, which put Flinders first on the paper and second-last
+ * in the boxes, so counting off a sheet meant crossing the row every time.
+ *
+ * The recording sheet and the Results list share this, so a sheet can be typed
+ * straight down the page without hunting for names.
+ */
+const byHouseThenName = (houses) => {
+  const rank = {};
+  (houses || []).forEach((h, i) => { rank[h.id] = i; });
+  const at = (s) => (rank[s.house] === undefined ? 999 : rank[s.house]);
+  return (a, b) => at(a) - at(b) || a.name.localeCompare(b.name);
+};
+
 const DEFAULT_HOUSES = [
   { id: 'h1', name: 'Freeman',   colour: '#e11d48' },
   { id: 'h2', name: 'Goldstein', colour: '#0891b2' },
@@ -1127,13 +1145,42 @@ function ResultsTab({ events, students, results, setResults, houses, sheetMeta, 
    * won. A student can only hold one place and a place only one student, so
    * assigning either end clears whatever it displaces — duplicates are not
    * possible to create.
+   *
+   * Displacing somebody is the dangerous half of that. Typing a 1 into the wrong
+   * row used to take 1st off whoever held it without a word, and nothing on the
+   * screen said so — the other row simply went blank further up the page. So the
+   * swap is now named before it happens, and an Undo stays on screen after it in
+   * case the confirm was clicked through.
    */
+  const [placeUndo, setPlaceUndo] = useState(null);
   const assignPlace = (studentId, value) => {
     const places = (meta.places || ['', '', '', '']).slice();
-    for (let i = 0; i < places.length; i++) if (places[i] === studentId) places[i] = '';
     const n = parseInt(value, 10);
-    if (n >= 1 && n <= places.length) places[n - 1] = studentId;
+    const valid = n >= 1 && n <= places.length;
+    const displaced = valid && places[n - 1] && places[n - 1] !== studentId ? places[n - 1] : '';
+    const nameOf = (id) => (studentsById[id] || {}).name || 'someone else';
+
+    if (displaced) {
+      const ok = confirm(
+        ordinal(n) + ' is currently ' + nameOf(displaced) + '.\n\n' +
+        'Give ' + ordinal(n) + ' to ' + nameOf(studentId) + ' instead?\n' +
+        nameOf(displaced) + ' will be left without a place.');
+      if (!ok) return;
+    }
+
+    const before = places.slice();
+    for (let i = 0; i < places.length; i++) if (places[i] === studentId) places[i] = '';
+    if (valid) places[n - 1] = studentId;
     writeMeta({ places });
+    setPlaceUndo(displaced
+      ? { key: metaKey, places: before,
+          text: nameOf(studentId) + ' took ' + ordinal(n) + ' from ' + nameOf(displaced) +
+                ', who now has no place.' }
+      : null);
+  };
+  const undoPlace = () => {
+    writeMeta({ places: placeUndo.places });
+    setPlaceUndo(null);
   };
   const placeOf = (studentId) => {
     const i = (meta.places || []).indexOf(studentId);
@@ -1163,15 +1210,29 @@ function ResultsTab({ events, students, results, setResults, houses, sheetMeta, 
   };
   const sheetLookup = sheetIndex.byNumber[parseInt(sheetNo, 10)];
 
-  // Same order as the printed recording sheet — by house, then name — so results
-  // can be typed straight down the page without hunting for each name.
   const houseName = (id) => (houses.find(h => h.id === id) || {}).name || '';
 
-  // Same order as the printed recording sheet — by house, then name — so results
-  // can be typed straight down the page without hunting for each name.
+  // Same order as the printed recording sheet — see byHouseThenName.
   const inDivision = students
     .filter(s => s.yearLevel === year && s.gender === gender)
-    .sort((a, b) => (houseName(a.house) + a.name).localeCompare(houseName(b.house) + b.name));
+    .sort(byHouseThenName(houses));
+
+  /*
+   * Finding one child in a list of sixty. The search narrows the sheet below
+   * only — the participation counts and "Fill from class list" still work off
+   * the whole division, so a filter left in the box cannot quietly undercount a
+   * house. If the name is not in this division but is somewhere else, say where
+   * and offer to jump: on carnival day a sheet lands in the wrong pile often
+   * enough that hunting for the right division by hand is the slow part.
+   */
+  const [find, setFind] = useState('');
+  const needle = find.trim().toLowerCase();
+  const shown = needle
+    ? inDivision.filter(s => s.name.toLowerCase().includes(needle))
+    : inDivision;
+  const elsewhere = (needle && shown.length === 0)
+    ? students.filter(s => s.name.toLowerCase().includes(needle)).slice(0, 6)
+    : [];
 
   const ranked = event ? rankFor(results, event.id, division, event.scoring, studentsById) : [];
 
@@ -1343,6 +1404,49 @@ function ResultsTab({ events, students, results, setResults, houses, sheetMeta, 
               {event.scoring === 'lower' ? ' (or m:ss.s)' : ''}
             </span>
           </h3>
+          {placeUndo && placeUndo.key === metaKey && (
+            <div className="warn noprint" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{ flex: '1 1 240px' }}>{placeUndo.text}</span>
+              <button className="btn-ghost btn-sm" style={{ flex: '0 0 auto' }} onClick={undoPlace}>Undo</button>
+              <button className="btn-ghost btn-sm" style={{ flex: '0 0 auto' }} onClick={() => setPlaceUndo(null)}>Dismiss</button>
+            </div>
+          )}
+
+          {inDivision.length > 0 && (
+            <div className="row noprint" style={{ alignItems: 'flex-start' }}>
+              <label className="fld" style={{ flex: '1 1 260px' }}>Find a student
+                <input type="text" value={find} placeholder="type part of a name"
+                  aria-label="Find a student on this sheet"
+                  onChange={e => setFind(e.target.value)} />
+              </label>
+              <div style={{ flex: '2 1 260px', paddingBottom: 10 }} className="muted">
+                {!needle
+                  ? 'Narrows the list below. The house points above always count the whole division.'
+                  : shown.length > 0
+                    ? <span>Showing <strong>{shown.length}</strong> of {inDivision.length}.{' '}
+                        <button className="linkish" onClick={() => setFind('')}>show all</button></span>
+                    : <span style={{ color: '#b45309' }}>
+                        Nobody in Year {year} {gender} matches “{find.trim()}”.{' '}
+                        <button className="linkish" onClick={() => setFind('')}>show all</button>
+                      </span>}
+              </div>
+            </div>
+          )}
+
+          {elsewhere.length > 0 && (
+            <div className="warn noprint">
+              <strong>That name is in {elsewhere.length === 1 ? 'another division' : 'other divisions'}:</strong>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
+                {elsewhere.map(s => (
+                  <button key={s.id} className="btn-ghost btn-sm"
+                    onClick={() => { setYear(s.yearLevel); setGender(s.gender); setSheetNo(''); setFind(''); }}>
+                    {s.name} — Year {s.yearLevel} {s.gender}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {inDivision.length === 0 ? (
             <p className="muted">No students in Year {year} {gender}. Check the Students tab.</p>
           ) : (
@@ -1350,7 +1454,7 @@ function ResultsTab({ events, students, results, setResults, houses, sheetMeta, 
               <table>
                 <thead><tr><th style={{ width: 76 }}>Place</th><th>Student</th><th>House</th><th style={{ width: 140 }}>Result</th></tr></thead>
                 <tbody>
-                  {inDivision.map(s => {
+                  {shown.map(s => {
                     const r = ranked.find(x => x.studentId === s.id);
                     const mine = placeOf(s.id);
                     // Once anyone is named, the named set governs; until then the
@@ -1442,6 +1546,17 @@ function DistrictTab({ events, students, results, prefs, setPrefs, settings, set
     });
     return byYear;
   }, [events, students]);
+
+  /*
+   * Year levels can be switched off — seven years of programme is a long scroll
+   * when only one is being worked on, and a hidden year is left out of print
+   * too, so a single year can be run off for the teacher taking it. Hiding never
+   * changes the allocation: rows still exist and still hold their spots.
+   */
+  const [hiddenYears, setHiddenYears] = useState({});
+  const toggleYear = (y) => setHiddenYears(h => ({ ...h, [y]: !h[y] }));
+  const yearsInProgramme = YEARS.filter(y => programme[y]);
+  const shownYears = yearsInProgramme.filter(y => !hiddenYears[y]);
 
   const rowKey = (r) => divKey(r.event.id, r.division);
 
@@ -1687,7 +1802,15 @@ function DistrictTab({ events, students, results, prefs, setPrefs, settings, set
       {alloc.needsChoice.length > 0 && (
         <div className="card">
           <div className="warn">
-            <strong>{alloc.needsChoice.length} student{alloc.needsChoice.length === 1 ? '' : 's'} won more than {settings.maxPerStudent} events.</strong>{' '}
+            {/* Not "won": the cut is the top {spotsPerEvent} of each event, so a
+                second place counts here as much as a first. */}
+            <strong>
+              {alloc.needsChoice.length} student{alloc.needsChoice.length === 1 ? '' : 's'}{' '}
+              {settings.spotsPerEvent === 1
+                ? 'came 1st in'
+                : 'finished in the top ' + settings.spotsPerEvent + ' of'}
+              {' '}more than {settings.maxPerStudent} event{settings.maxPerStudent === 1 ? '' : 's'}.
+            </strong>{' '}
             Tick the {settings.maxPerStudent} each will run. Every event they let go passes to the next finisher automatically,
             and the tables below update as you go.
           </div>
@@ -1706,7 +1829,7 @@ function DistrictTab({ events, students, results, prefs, setPrefs, settings, set
                     <label key={w.eventId} style={{ fontSize: 14 }}>
                       <input type="checkbox" checked={chosen.includes(w.eventId)}
                         onChange={e => setChosen(o.studentId, w.eventId, e.target.checked)} />
-                      {' '}{eventName(w.eventId)} <span className="muted">({w.place === 1 ? '1st' : w.place === 2 ? '2nd' : w.place + 'th'})</span>
+                      {' '}{eventName(w.eventId)} <span className="muted">({ordinal(w.place)})</span>
                     </label>
                   ))}
                 </div>
@@ -1733,7 +1856,42 @@ function DistrictTab({ events, students, results, prefs, setPrefs, settings, set
           <p className="muted">Load the class list on the Import tab first.</p>
         )}
 
-        {YEARS.filter(y => programme[y]).map(y => (
+        {yearsInProgramme.length > 0 && (
+          <div className="noprint" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center',
+            margin: '0 0 16px', paddingBottom: 14, borderBottom: '1px solid #e8ecef' }}>
+            <span className="muted" style={{ fontSize: 13 }}>Show:</span>
+            {yearsInProgramme.map(y => {
+              const on = !hiddenYears[y];
+              return (
+                <button key={y} className="btn-ghost btn-sm" role="switch" aria-checked={on}
+                  aria-label={'Year ' + y}
+                  onClick={() => toggleYear(y)}
+                  style={{
+                    background: on ? '#e0e7ff' : 'transparent',
+                    borderColor: on ? '#c7d2fe' : undefined,
+                    color: on ? '#1e3a8a' : '#8a949e',
+                    fontWeight: on ? 600 : 400,
+                  }}>
+                  {on ? '✓ ' : ''}Year {y}
+                </button>
+              );
+            })}
+            <span style={{ flex: '1 1 auto' }} />
+            <button className="btn-ghost btn-sm" onClick={() => setHiddenYears({})}>All</button>
+            <button className="btn-ghost btn-sm"
+              onClick={() => {
+                const h = {};
+                yearsInProgramme.forEach(y => { h[y] = true; });
+                setHiddenYears(h);
+              }}>None</button>
+          </div>
+        )}
+
+        {yearsInProgramme.length > 0 && shownYears.length === 0 && (
+          <p className="muted">Every year level is hidden — press <strong>All</strong> to bring them back.</p>
+        )}
+
+        {shownYears.map(y => (
           <div key={y} style={{ marginBottom: 22 }}>
             <h3 style={{ margin: '0 0 8px', fontSize: 16, borderBottom: '2px solid #e0e4e8', paddingBottom: 6 }}>
               Year {y}
@@ -1955,6 +2113,14 @@ function SheetsTab({ events, students, results, houses }) {
    * students, which is far more than fits on A4, so each division is split into
    * pages of `rowsPerPage` and every page gets its own heading and marshal line.
    * The write-in blanks go on the end, so they land on the final page.
+   *
+   * Rows are tagged rather than being bare students, because the sheet carries
+   * three kinds of line: a student, a write-in blank, and a tally line closing
+   * off each house. The tally is what the marshal writes the head count on, and
+   * it is the number the scorer types into the participation box on the Results
+   * tab — so it sits under the house it counts, while the names are still fresh
+   * on the page. Only the student and blank lines are numbered, so a tally in
+   * the middle doesn't put the numbering out.
    */
   const sheets = useMemo(() => {
     const out = [];
@@ -1969,15 +2135,28 @@ function SheetsTab({ events, students, results, houses }) {
           const ranked = rankFor(results, ev.id, y + ' ' + g, ev.scoring, studentsById);
           const order = withResults
             ? ranked.map(r => studentsById[r.studentId]).concat(roll.filter(s => !ranked.some(r => r.studentId === s.id)))
-            : roll.slice().sort((a, b) => (houseName(a.house) + a.name).localeCompare(houseName(b.house) + b.name));
+            : roll.slice().sort(byHouseThenName(houses));
 
-          const entries = order.concat(Array.from({ length: blankRows }, () => null));
+          const entries = [];
+          let no = 0;
+          order.forEach((s, i) => {
+            entries.push({ kind: 'student', student: s, no: ++no });
+            // A filled-in sheet is sorted by placing, not by house, so there are
+            // no house blocks to close off.
+            if (withResults) return;
+            const next = order[i + 1];
+            if (!next || next.house !== s.house) {
+              entries.push({ kind: 'tally', house: s.house, onList: order.filter(x => x.house === s.house).length });
+            }
+          });
+          for (let i = 0; i < blankRows; i++) entries.push({ kind: 'blank', no: ++no });
+          if (blankRows > 0 && !withResults) entries.push({ kind: 'tally', house: null, onList: 0 });
+
           const pageCount = Math.max(1, Math.ceil(entries.length / rowsPerPage));
           for (let p = 0; p < pageCount; p++) {
             out.push({
               event: ev, year: y, gender: g, ranked,
               rows: entries.slice(p * rowsPerPage, (p + 1) * rowsPerPage),
-              offset: p * rowsPerPage,
               page: p + 1,
               pageCount,
             });
@@ -2012,8 +2191,9 @@ function SheetsTab({ events, students, results, houses }) {
 
   const exportSheetsCsv = () => {
     const rows = [['Sheet', 'Event', 'Year', 'Gender', 'Student', 'House', 'Result']];
-    sheets.forEach(sh => sh.rows.forEach(s => {
-      if (!s) return; // write-in blanks have no data to export
+    sheets.forEach(sh => sh.rows.forEach(row => {
+      if (row.kind !== 'student') return; // blanks and house tallies carry no data
+      const s = row.student;
       const hit = sh.ranked.find(r => r.studentId === s.id);
       rows.push([sheetIndex.byKey[divKey(sh.event.id, sh.year + ' ' + sh.gender)] || '',
         sh.event.name, sh.year, sh.gender, s.name, houseName(s.house), hit ? hit.result : '']);
@@ -2068,6 +2248,13 @@ function SheetsTab({ events, students, results, houses }) {
           runs off the bottom. Up to {MAX_ROWS_PER_A4} rows clear an A4 page. The write-in rows are
           blank lines at the end for adding anyone not on the list.
         </p>
+        <p className="muted" style={{ marginTop: 0 }}>
+          Each house finishes with a ruled line for the marshal to write <strong>how many
+          competed</strong> — that is the number you type into the participation box on the
+          Results tab, so the head count comes back on the paper rather than being guessed
+          afterwards. Those lines take up room on the page, so a division with four houses fits
+          four fewer names per sheet.
+        </p>
         <label style={{ fontSize: 14, display: 'block', marginBottom: 12 }}>
           <input type="checkbox" checked={withResults} onChange={e => setWithResults(e.target.checked)} />
           {' '}Fill in the results already recorded, in placing order (leave off for blank sheets to write on)
@@ -2116,19 +2303,34 @@ function SheetsTab({ events, students, results, houses }) {
               </tr>
             </thead>
             <tbody>
-              {sh.rows.map((s, idx) => {
-                if (!s) {
+              {sh.rows.map((row, idx) => {
+                if (row.kind === 'tally') {
+                  return (
+                    <tr className="tally" key={'tally' + idx}>
+                      <td></td>
+                      <td colSpan={2}>
+                        {row.house
+                          ? <span><strong>{houseName(row.house)}</strong> — how many competed?
+                              <span className="muted"> ({row.onList} on the list)</span></span>
+                          : <span><strong>Added by hand above</strong> — how many, and for which house?</span>}
+                      </td>
+                      <td colSpan={2}><span className="tallybox" /></td>
+                    </tr>
+                  );
+                }
+                if (row.kind === 'blank') {
                   return (
                     <tr className="blank" key={'blank' + idx}>
-                      <td className="muted">{sh.offset + idx + 1}</td>
+                      <td className="muted">{row.no}</td>
                       <td></td><td></td><td></td><td></td>
                     </tr>
                   );
                 }
+                const s = row.student;
                 const hit = sh.ranked.find(r => r.studentId === s.id);
                 return (
                   <tr key={s.id}>
-                    <td className="muted">{sh.offset + idx + 1}</td>
+                    <td className="muted">{row.no}</td>
                     <td>{s.name}</td>
                     <td className="muted">{houseName(s.house)}</td>
                     <td>{withResults && hit ? hit.result : ''}</td>
