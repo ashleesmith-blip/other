@@ -210,13 +210,44 @@ function useSupabaseSync(state, apply) {
     sheetMeta: s.sheetMeta, scoring: s.scoring, settings: s.settings, prefs: s.prefs,
   });
 
+  /*
+   * A pull replaces local data with the server's. That is right when the server
+   * is the fuller copy and catastrophic when it is not — connecting a browser
+   * that holds the only class list to a project that has never been seeded
+   * would empty it. Anything that would wipe a populated list has to be
+   * confirmed; everything else applies silently.
+   */
+  const applyRemote = (remote) => {
+    const local = stateRef.current;
+    const wipes = [
+      ['students', (local.students || []).length, (remote.students || []).length],
+      ['results', (local.results || []).length, (remote.results || []).length],
+      ['sheets', Object.keys(local.sheetMeta || {}).length, Object.keys(remote.sheetMeta || {}).length],
+    ].filter(([, mine, theirs]) => mine > 0 && theirs === 0);
+
+    if (wipes.length) {
+      const lost = wipes.map(([what, mine]) => mine + ' ' + what).join(', ');
+      const ok = confirm(
+        'Supabase has no ' + wipes.map(w => w[0]).join(' or ') + ', but this browser has ' + lost + '.\n\n' +
+        'Pulling would erase them here.\n\n' +
+        'Cancel, then use "Upload this browser to Supabase" instead if this is the copy with your data.');
+      if (!ok) {
+        setStatus({ phase: 'error', at: new Date(), error: null,
+          note: 'pull cancelled — this browser still holds ' + lost });
+        return false;
+      }
+    }
+    applyRef.current(remote);
+    return true;
+  };
+
   const pull = useCallback(async (opts) => {
     const cfg = (opts && opts.config) || config;
     if (!cfg.url || !cfg.key) throw new Error('Project URL and anon key are both needed.');
     setStatus(s => ({ ...s, phase: 'working', error: null }));
     const remote = await pullAll(cfg);
+    if (!applyRemote(remote)) return null;
     shadow.current = remote;
-    applyRef.current(remote);
     setStatus({ phase: 'ok', at: new Date(), error: null,
       note: 'pulled ' + remote.students.length + ' students, ' + remote.results.length + ' results' });
     return remote;
@@ -271,9 +302,10 @@ function useSupabaseSync(state, apply) {
       try {
         const remote = await pullAll(config);
         if (!stop && !sameJson(remote, shadow.current)) {
-          shadow.current = remote;
-          applyRef.current(remote);
-          setStatus({ phase: 'ok', at: new Date(), error: null, note: 'updated from the server' });
+          if (applyRemote(remote)) {
+            shadow.current = remote;
+            setStatus({ phase: 'ok', at: new Date(), error: null, note: 'updated from the server' });
+          }
         } else if (!stop) {
           setStatus(s => ({ ...s, phase: 'ok', at: new Date(), error: null }));
         }

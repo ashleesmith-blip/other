@@ -127,6 +127,18 @@ a second scoring desk work at the same time.
 It uses the PostgREST API over `fetch` rather than bundling `supabase-js`, so `index.html` stays
 self-contained and the only host it ever contacts is your own project.
 
+**Guard rails.** Sync moves data both ways, and both directions can destroy a class list:
+
+- *Connect and pull* replaces this browser with the server. Pointing a browser that holds the only
+  copy at a project that has never been seeded would empty it, so any pull that would wipe a
+  populated students, results or sheets list now asks first and names what would be lost.
+- A push sends deletions too, so a synced browser that ends up empty would take the server down with
+  it. Run [`supabase-protect.sql`](supabase-protect.sql) after the main schema: it revokes delete on
+  students, houses and events from `anon`, and archives every deleted row into `deleted_rows` with
+  the SQL to put them back. Results and sheets keep delete, because clearing a result removes its
+  row. The trade is that removing a student is then done in the Supabase table editor rather than in
+  the app.
+
 **Who can read it.** The schema ships with row-level security on and policies that grant the `anon`
 role full read and write — the no-login model. Anyone with the site URL and the key in it can read
 and change every row. Mitigate by putting the site behind Netlify's password protection (Site
