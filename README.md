@@ -106,6 +106,13 @@ moved** shows who was passed over and why.
 So a student who wins six events picks two, and the other four go to the runners-up automatically
 rather than being worked out by hand.
 
+**The team sheet covers the whole programme**, grouped by year level with every event that runs at
+it underneath — including events still to come, which show empty slots. Placings fill it in by
+default; type a name into any slot to set that row by hand and it stops being recalculated, with a
+**Reset** to hand it back. The name list offers everyone in the division best-placing first, each
+with their house, their placing, how many district events they already hold and their beep test, so
+a spot can be filled on the evidence rather than on placing alone.
+
 ## Sync (Supabase)
 
 Optional. Without it the tool is browser-only, which is fine for one person but means the data lives

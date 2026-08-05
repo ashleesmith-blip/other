@@ -3,7 +3,7 @@ const { useState, useEffect, useMemo, useCallback, useRef } = React;
 const store = (typeof window !== 'undefined' && window.storage) ? window.storage : localStorage;
 
 const STORE_KEYS = ['ath_houses', 'ath_events', 'ath_students', 'ath_results',
-  'ath_prefs', 'ath_settings', 'ath_sheetmeta', 'ath_scoring'];
+  'ath_prefs', 'ath_settings', 'ath_sheetmeta', 'ath_scoring', 'ath_dteam'];
 
 /*
  * Persisted state.
@@ -1266,7 +1266,7 @@ function ResultsTab({ events, students, results, setResults, houses, sheetMeta, 
   );
 }
 
-function DistrictTab({ events, students, results, prefs, setPrefs, settings, setSettings, sheetMeta }) {
+function DistrictTab({ events, students, results, prefs, setPrefs, settings, setSettings, sheetMeta, dteam, setDteam, houses }) {
   const [expanded, setExpanded] = useState(null);
   const studentsById = useMemo(() => {
     const m = {}; students.forEach(s => { m[s.id] = s; }); return m;
@@ -1295,6 +1295,69 @@ function DistrictTab({ events, students, results, prefs, setPrefs, settings, set
   };
 
   const withResults = alloc.contests.length > 0;
+  const houseName = (id) => (houses.find(h => h.id === id) || {}).name || '';
+
+  /*
+   * The team sheet covers the whole district programme, not only what has been
+   * run: every year level, every event that runs at it, whether or not a result
+   * exists. An event still to come shows empty slots you can type into, so the
+   * sheet can be filled in ahead of the day.
+   *
+   * Placings fill it by default. A name typed into a row is a manual override
+   * and that row stops being recalculated — there is a Reset on it to hand the
+   * row back to the automatic pick.
+   */
+  const programme = useMemo(() => {
+    const populated = new Set();
+    students.forEach(st => { if (st.yearLevel) populated.add(st.yearLevel + ' ' + (st.gender || 'Mixed')); });
+    const byYear = {};
+    YEARS.forEach(y => {
+      events.forEach(ev => {
+        if (!ev.years.includes(y)) return;
+        GENDERS.forEach(g => {
+          if (!populated.has(y + ' ' + g)) return;
+          (byYear[y] = byYear[y] || []).push({ event: ev, year: y, gender: g, division: y + ' ' + g });
+        });
+      });
+    });
+    return byYear;
+  }, [events, students]);
+
+  const rowKey = (r) => divKey(r.event.id, r.division);
+  const manualOf = (r) => dteam[rowKey(r)];
+  const autoOf = (r) => (alloc.filled[rowKey(r)] || []).map(x => x.studentId);
+  const teamOf = (r) => manualOf(r) || autoOf(r);
+
+  const setSlot = (r, i, studentId) => {
+    const key = rowKey(r);
+    const current = (manualOf(r) || autoOf(r)).slice();
+    while (current.length < settings.spotsPerEvent) current.push('');
+    current[i] = studentId;
+    setDteam({ ...dteam, [key]: current });
+  };
+  const resetRow = (r) => {
+    const next = { ...dteam };
+    delete next[rowKey(r)];
+    setDteam(next);
+  };
+
+  // Who could fill a slot, with the evidence for choosing them.
+  const candidatesFor = (r) => {
+    const ranked = (alloc.contests.find(c => c.event.id === r.event.id && c.division === r.division) || {}).ranked || [];
+    const placeOf = {};
+    ranked.forEach(x => { placeOf[x.studentId] = x.place; });
+    return students
+      .filter(st => st.yearLevel === r.year && (st.gender || 'Mixed') === r.gender)
+      .map(st => {
+        const bits = [st.name, houseName(st.house)];
+        if (placeOf[st.id]) bits.push(['1st', '2nd', '3rd', '4th'][placeOf[st.id] - 1] || (placeOf[st.id] + 'th'));
+        const held = (alloc.held[st.id] || []).length;
+        if (held) bits.push(held + (held === 1 ? ' event' : ' events'));
+        if (st.beepTest) bits.push('beep ' + st.beepTest);
+        return { id: st.id, label: bits.join(' · '), place: placeOf[st.id] || 99 };
+      })
+      .sort((a, b) => a.place - b.place || a.label.localeCompare(b.label));
+  };
 
   /*
    * Preferences can be recorded for anyone who has placed in anything, not only
@@ -1483,33 +1546,80 @@ function DistrictTab({ events, students, results, prefs, setPrefs, settings, set
         </div>
       )}
 
-      {withResults && (
-        <div className="card">
-          <h3>Team sheet</h3>
-          <table>
-            <thead><tr><th>Event</th><th>Division</th><th>Going to district</th></tr></thead>
-            <tbody>
-              {alloc.contests.map(c => {
-                const key = divKey(c.event.id, c.division);
-                const picked = alloc.filled[key] || [];
-                const short = picked.length < settings.spotsPerEvent;
-                return (
-                  <tr key={key}>
-                    <td><strong>{c.event.name}</strong></td>
-                    <td className="muted">Yr {c.division}</td>
-                    <td>
-                      {picked.length === 0
-                        ? <span className="muted">nobody available</span>
-                        : picked.map(p => nameOf(p.studentId)).join(', ')}
-                      {short && picked.length > 0 && <span className="muted"> · {settings.spotsPerEvent - picked.length} spot free</span>}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <div className="card">
+        <h3>Team sheet</h3>
+        <p className="muted" style={{ marginTop: 0 }}>
+          The whole programme, year by year — including events still to be run. Placings fill it in
+          by default; type a name into any slot to set it by hand and that row stops being
+          recalculated. The list offers everyone in the division, best placing first, with their
+          house, placing, how many district events they already hold and their beep test.
+        </p>
+
+        {Object.keys(programme).length === 0 && (
+          <p className="muted">Load the class list on the Import tab first.</p>
+        )}
+
+        {YEARS.filter(y => programme[y]).map(y => (
+          <div key={y} style={{ marginBottom: 22 }}>
+            <h3 style={{ margin: '0 0 8px', fontSize: 16, borderBottom: '2px solid #e0e4e8', paddingBottom: 6 }}>
+              Year {y}
+            </h3>
+            <table>
+              <thead>
+                <tr>
+                  <th style={{ width: 150 }}>Event</th>
+                  <th style={{ width: 90 }}>Division</th>
+                  <th>Going to district</th>
+                  <th style={{ width: 80 }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {programme[y].map(r => {
+                  const key = rowKey(r);
+                  const team = teamOf(r);
+                  const manual = !!manualOf(r);
+                  const cands = candidatesFor(r);
+                  const byId = {}; cands.forEach(c => { byId[c.id] = c.label; });
+                  const byLabel = {}; cands.forEach(c => { byLabel[c.label.toLowerCase()] = c.id; });
+                  const listId = 'cand-' + key.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+                  return (
+                    <tr key={key}>
+                      <td><strong>{r.event.name}</strong></td>
+                      <td className="muted">{r.gender}</td>
+                      <td>
+                        <datalist id={listId}>
+                          {cands.map(c => <option key={c.id} value={c.label} />)}
+                        </datalist>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                          {Array.from({ length: settings.spotsPerEvent }).map((_, i) => (
+                            // Keyed on the value it is showing, so Reset — or the
+                            // allocation shifting underneath — remounts it with the
+                            // new name rather than leaving the old text on screen.
+                            <input key={key + ':' + i + ':' + (team[i] || '')}
+                              type="text" list={listId} style={{ marginTop: 0, flex: '1 1 190px' }}
+                              aria-label={r.event.name + ' ' + r.division + ' spot ' + (i + 1)}
+                              placeholder={'spot ' + (i + 1)}
+                              defaultValue={byId[team[i]] || ''}
+                              onChange={e => {
+                                const hit = byLabel[e.target.value.trim().toLowerCase()];
+                                if (hit || !e.target.value.trim()) setSlot(r, i, hit || '');
+                              }} />
+                          ))}
+                        </div>
+                      </td>
+                      <td>
+                        {manual
+                          ? <button className="btn-ghost btn-sm" onClick={() => resetRow(r)}>Reset</button>
+                          : <span className="muted" style={{ fontSize: 12 }}>auto</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ))}
+      </div>
 
       {withResults && (
         <div className="card">
@@ -1793,6 +1903,7 @@ function App() {
   const [settings, setSettings] = usePersistentState('ath_settings', { maxPerStudent: 2, spotsPerEvent: 1 });
   const [sheetMeta, setSheetMeta] = usePersistentState('ath_sheetmeta', {});
   const [scoring, setScoring] = usePersistentState('ath_scoring', DEFAULT_SCORING);
+  const [dteam, setDteam] = usePersistentState('ath_dteam', {});
 
   // Supabase, when it is switched on. Everything still renders from the local
   // state above; this only mirrors it out and brings other people's edits in.
@@ -1876,7 +1987,9 @@ function App() {
                                sheetMeta={sheetMeta} setSheetMeta={setSheetMeta} scoring={scoring} />}
       {tab === 'sheets'   && <SheetsTab   events={events} students={students} results={results} houses={houses} />}
       {tab === 'sync'     && <SyncTab     sync={sync} students={students} results={results} sheetMeta={sheetMeta} />}
-      {tab === 'district' && <DistrictTab events={events} students={students} results={results} prefs={prefs} setPrefs={setPrefs} settings={settings} setSettings={setSettings} sheetMeta={sheetMeta} />}
+      {tab === 'district' && <DistrictTab events={events} students={students} results={results} prefs={prefs} setPrefs={setPrefs}
+                               settings={settings} setSettings={setSettings} sheetMeta={sheetMeta}
+                               dteam={dteam} setDteam={setDteam} houses={houses} />}
     </div>
   );
 }
