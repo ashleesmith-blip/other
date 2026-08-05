@@ -133,6 +133,10 @@ a second scoring desk work at the same time.
 4. Press **Upload this browser to Supabase** once, from the machine that has the data.
 5. On every other device, paste the same two values and press **Connect and pull**.
 
+The Sync tab shows **this browser** and **Supabase** side by side — students, results and sheets —
+so a browser showing nothing can be told apart from a server holding nothing, and says which way to
+push when they disagree.
+
 **How it behaves**
 
 - The browser stays the working copy. Everything renders locally, so the tool keeps going on an oval

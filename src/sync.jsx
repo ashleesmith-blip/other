@@ -127,6 +127,12 @@ async function pullAll(cfg) {
 
 const sameJson = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
+const countsOf = (snap) => ({
+  students: (snap.students || []).length,
+  results: (snap.results || []).length,
+  sheets: Object.keys(snap.sheetMeta || {}).length,
+});
+
 // Only what actually changed since the last known server state gets written.
 function diffById(localRows, shadowRows) {
   const shadow = {};
@@ -234,6 +240,9 @@ async function pushChanges(cfg, local, shadow) {
 function useSupabaseSync(state, apply) {
   const [config, setConfig] = usePersistentState(SYNC_KEY, { url: '', key: '', enabled: false });
   const [status, setStatus] = useState({ phase: 'off', at: null, error: null, note: '' });
+  // What the server last reported holding, so a browser showing nothing can be
+  // told apart from a server holding nothing.
+  const [remoteCounts, setRemoteCounts] = useState(null);
 
   const shadow = useRef(null);       // last state we know the server holds
   const busy = useRef(false);        // a transfer is in flight
@@ -290,6 +299,7 @@ function useSupabaseSync(state, apply) {
     if (!cfg.url || !cfg.key) throw new Error('Project URL and anon key are both needed.');
     setStatus(s => ({ ...s, phase: 'working', error: null }));
     const remote = await pullAll(cfg);
+    setRemoteCounts(countsOf(remote));
     if (!applyRemote(remote, true)) return null;
     shadow.current = remote;
     setStatus({ phase: 'ok', at: new Date(), error: null,
@@ -306,6 +316,9 @@ function useSupabaseSync(state, apply) {
     const touched = await pushChanges(cfg, snapshot(stateRef.current),
       { houses: [], events: [], students: [], results: [], sheetMeta: {} });
     shadow.current = snapshot(stateRef.current);
+    // The server now holds what was just sent; saying so immediately beats
+    // showing zeroes until the next poll comes round.
+    setRemoteCounts(countsOf(shadow.current));
     setStatus({ phase: 'ok', at: new Date(), error: null,
       note: touched.length ? 'sent ' + touched.join(', ') : 'nothing to send' });
   }, [config]);
@@ -321,6 +334,7 @@ function useSupabaseSync(state, apply) {
       try {
         const touched = await pushChanges(config, local, shadow.current);
         shadow.current = local;
+        setRemoteCounts(countsOf(local));
         if (touched.length) {
           setStatus({ phase: 'ok', at: new Date(), error: null, note: 'sent ' + touched.join(', ') });
         }
@@ -345,6 +359,7 @@ function useSupabaseSync(state, apply) {
       busy.current = true;
       try {
         const remote = await pullAll(config);
+        if (!stop) setRemoteCounts(countsOf(remote));
         if (!stop && !sameJson(remote, shadow.current)) {
           if (applyRemote(remote, false)) {
             shadow.current = remote;
@@ -364,13 +379,13 @@ function useSupabaseSync(state, apply) {
     return () => { stop = true; clearInterval(id); };
   }, [live, config]);
 
-  return { config, setConfig, status, pull, pushAll, live };
+  return { config, setConfig, status, pull, pushAll, live, remoteCounts };
 }
 
 /* ----------------------------------------------------------------- the tab */
 
 function SyncTab({ sync, students, results, sheetMeta }) {
-  const { config, setConfig, status, pull, pushAll, live } = sync;
+  const { config, setConfig, status, pull, pushAll, live, remoteCounts } = sync;
   const [draft, setDraft] = useState({ url: config.url, key: config.key });
   const [busy, setBusy] = useState('');
 
@@ -410,9 +425,33 @@ function SyncTab({ sync, students, results, sheetMeta }) {
                 : 'Connecting…')
             : 'Not syncing. This browser is the only copy of your data.'}
         </p>
-        <p className="muted" style={{ marginBottom: 0 }}>
-          Holding locally: {students.length} students, {results.length} results, {sheetCount} sheets.
-        </p>
+        <table style={{ marginTop: 4 }}>
+          <thead><tr><th></th><th>Students</th><th>Results</th><th>Sheets</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><strong>This browser</strong></td>
+              <td>{students.length}</td><td>{results.length}</td><td>{sheetCount}</td>
+            </tr>
+            <tr>
+              <td><strong>Supabase</strong></td>
+              {remoteCounts
+                ? <React.Fragment>
+                    <td>{remoteCounts.students}</td><td>{remoteCounts.results}</td><td>{remoteCounts.sheets}</td>
+                  </React.Fragment>
+                : <td colSpan={3} className="muted">not checked yet — press Connect and pull</td>}
+            </tr>
+          </tbody>
+        </table>
+        {remoteCounts && (remoteCounts.results !== results.length
+          || remoteCounts.students !== students.length
+          || remoteCounts.sheets !== sheetCount) && (
+          <div className="warn" style={{ marginTop: 12, marginBottom: 0 }}>
+            The two do not match.{' '}
+            {remoteCounts.results < results.length || remoteCounts.students < students.length
+              ? 'This browser has more, so press Upload this browser to Supabase.'
+              : 'Supabase has more, so press Connect and pull to bring it down.'}
+          </div>
+        )}
       </div>
 
       <div className="card">
