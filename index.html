@@ -96,6 +96,21 @@
 /* Place column on the results sheet — narrow, so a 1-4 reads at a glance. */
 .placebox { width: 56px; text-align: center; font-weight: 700; }
 
+/* Hover an event on the district sheet to see the first four and their marks. */
+.hint { position: relative; cursor: help; }
+.hint-dot {
+  display: inline-block; margin-left: 6px; width: 15px; height: 15px; line-height: 15px;
+  border-radius: 50%; background: #dbe3ea; color: #445; font-size: 10px; font-weight: 700;
+  text-align: center; font-style: italic;
+}
+.hint-box {
+  display: none; position: absolute; z-index: 20; left: 0; top: 100%; margin-top: 6px;
+  background: #1a2027; color: #fff; padding: 10px 12px; border-radius: 8px;
+  font-size: 12.5px; line-height: 1.6; white-space: nowrap; font-weight: 400;
+  box-shadow: 0 6px 18px rgba(0,0,0,.22);
+}
+.hint:hover .hint-box, .hint:focus-within .hint-box { display: block; }
+
 </style>
 </head>
 <body>
@@ -1942,7 +1957,8 @@ function StudentsTab({
   results,
   setResults,
   sheetMeta,
-  setSheetMeta
+  setSheetMeta,
+  syncLive
 }) {
   const [draft, setDraft] = useState({
     name: '',
@@ -1992,6 +2008,12 @@ function StudentsTab({
   }, [students]);
   const dupExtra = duplicates.reduce((n, g) => n + g.length - 1, 0);
   const mergeDuplicates = () => {
+    /*
+     * Merging while synced achieves nothing: student deletes are revoked on the
+     * server by supabase-protect.sql, so the duplicates stay there and the next
+     * pull puts them straight back. The server has to be cleared first.
+     */
+    if (syncLive && !confirm('Sync is on, and the duplicates are on Supabase too.\n\n' + 'Deleting students from the server is blocked, so the next pull will put them back and this ' + 'merge will look like it did nothing.\n\n' + 'Turn sync off first, merge, then clear and re-upload the server. Carry on anyway?')) return;
     const refCount = {};
     (results || []).forEach(r => {
       refCount[r.studentId] = (refCount[r.studentId] || 0) + 1;
@@ -2986,18 +3008,69 @@ function DistrictTab({
     return byYear;
   }, [events, students]);
   const rowKey = r => divKey(r.event.id, r.division);
-  const manualOf = r => dteam[rowKey(r)];
+
+  // Stored as { ids, marks }. Earlier versions stored a bare array of ids, so
+  // that shape is still read.
+  const entryOf = r => {
+    const raw = dteam[rowKey(r)];
+    if (!raw) return {};
+    return Array.isArray(raw) ? {
+      ids: raw
+    } : raw;
+  };
   const autoOf = r => (alloc.filled[rowKey(r)] || []).map(x => x.studentId);
+  const manualOf = r => entryOf(r).ids;
   const teamOf = r => manualOf(r) || autoOf(r);
-  const setSlot = (r, i, studentId) => {
+
+  // What they did in this event, if it has been recorded.
+  const recordedMark = (r, studentId) => {
+    const hit = (results || []).find(x => x.eventId === r.event.id && x.studentId === studentId);
+    return hit ? hit.result : '';
+  };
+  const markOf = (r, i) => {
+    const e = entryOf(r);
+    if (e.marks && e.marks[i] !== undefined && e.marks[i] !== '') return e.marks[i];
+    return recordedMark(r, teamOf(r)[i]);
+  };
+  const writeEntry = (r, changes) => {
     const key = rowKey(r);
+    setDteam({
+      ...dteam,
+      [key]: {
+        ...entryOf(r),
+        ...changes
+      }
+    });
+  };
+  const setSlot = (r, i, studentId) => {
     const current = (manualOf(r) || autoOf(r)).slice();
     while (current.length < settings.spotsPerEvent) current.push('');
     current[i] = studentId;
-    setDteam({
-      ...dteam,
-      [key]: current
+    writeEntry(r, {
+      ids: current
     });
+  };
+  const setMark = (r, i, value) => {
+    const marks = (entryOf(r).marks || []).slice();
+    while (marks.length < settings.spotsPerEvent) marks.push('');
+    marks[i] = value;
+    writeEntry(r, {
+      marks
+    });
+  };
+
+  // The first four in this event and division, with what they did — shown on
+  // hovering the event name, so the pick can be sanity-checked without leaving
+  // the page.
+  const topFour = r => {
+    const c = alloc.contests.find(x => x.event.id === r.event.id && x.division === r.division);
+    if (!c) return [];
+    return c.ranked.slice(0, 4).map(x => ({
+      place: x.place,
+      name: (studentsById[x.studentId] || {}).name || '?',
+      house: houseName((studentsById[x.studentId] || {}).house),
+      mark: x.result || recordedMark(r, x.studentId) || ''
+    }));
   };
   const resetRow = r => {
     const next = {
@@ -3267,7 +3340,13 @@ function DistrictTab({
     style: {
       marginTop: 0
     }
-  }, "The whole programme, year by year \u2014 including events still to be run. Placings fill it in by default; type a name into any slot to set it by hand and that row stops being recalculated. The list offers everyone in the division, best placing first, with their house, placing, how many district events they already hold and their beep test."), Object.keys(programme).length === 0 && /*#__PURE__*/React.createElement("p", {
+  }, "The whole programme, year by year \u2014 including events still to be run. Placings fill it in by default; type a name into any slot to set it by hand and that row stops being recalculated. The list offers everyone in the division, best placing first, with their house, placing, how many district events they already hold and their beep test. The box beside each name carries the ", /*#__PURE__*/React.createElement("strong", null, "time or distance"), " they go in with \u2014 filled from what was recorded, and editable for a seed mark. Hover an event name marked", /*#__PURE__*/React.createElement("span", {
+    className: "hint-dot",
+    style: {
+      position: 'static',
+      marginLeft: 4
+    }
+  }, "i"), " to see who came 1st through 4th and what they did."), Object.keys(programme).length === 0 && /*#__PURE__*/React.createElement("p", {
     className: "muted"
   }, "Load the class list on the Import tab first."), YEARS.filter(y => programme[y]).map(y => /*#__PURE__*/React.createElement("div", {
     key: y,
@@ -3307,9 +3386,26 @@ function DistrictTab({
       byLabel[c.label.toLowerCase()] = c.id;
     });
     const listId = 'cand-' + key.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+    const top = topFour(r);
     return /*#__PURE__*/React.createElement("tr", {
       key: key
-    }, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("strong", null, r.event.name)), /*#__PURE__*/React.createElement("td", {
+    }, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("span", {
+      className: "hint"
+    }, /*#__PURE__*/React.createElement("strong", null, r.event.name), top.length > 0 && /*#__PURE__*/React.createElement("span", {
+      className: "hint-dot"
+    }, "i"), top.length > 0 && /*#__PURE__*/React.createElement("span", {
+      className: "hint-box"
+    }, /*#__PURE__*/React.createElement("strong", {
+      style: {
+        display: 'block',
+        marginBottom: 4
+      }
+    }, r.event.name, " \u2014 Year ", r.year, " ", r.gender), top.map(t => /*#__PURE__*/React.createElement("span", {
+      key: t.place,
+      style: {
+        display: 'block'
+      }
+    }, ['1st', '2nd', '3rd', '4th'][t.place - 1], " \xA0", t.name, t.house ? ' · ' + t.house : '', t.mark ? ' — ' + t.mark + ' ' + r.event.unit : ''))))), /*#__PURE__*/React.createElement("td", {
       className: "muted"
     }, r.gender), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("datalist", {
       id: listId
@@ -3324,18 +3420,20 @@ function DistrictTab({
       }
     }, Array.from({
       length: settings.spotsPerEvent
-    }).map((_, i) =>
-    /*#__PURE__*/
-    // Keyed on the value it is showing, so Reset — or the
-    // allocation shifting underneath — remounts it with the
-    // new name rather than leaving the old text on screen.
-    React.createElement("input", {
+    }).map((_, i) => /*#__PURE__*/React.createElement("span", {
+      key: i,
+      style: {
+        display: 'flex',
+        gap: 6,
+        flex: '1 1 250px'
+      }
+    }, /*#__PURE__*/React.createElement("input", {
       key: key + ':' + i + ':' + (team[i] || ''),
       type: "text",
       list: listId,
       style: {
         marginTop: 0,
-        flex: '1 1 190px'
+        flex: '1 1 150px'
       },
       "aria-label": r.event.name + ' ' + r.division + ' spot ' + (i + 1),
       placeholder: 'spot ' + (i + 1),
@@ -3344,7 +3442,18 @@ function DistrictTab({
         const hit = byLabel[e.target.value.trim().toLowerCase()];
         if (hit || !e.target.value.trim()) setSlot(r, i, hit || '');
       }
-    })))), /*#__PURE__*/React.createElement("td", null, manual ? /*#__PURE__*/React.createElement("button", {
+    }), /*#__PURE__*/React.createElement("input", {
+      key: 'm' + key + ':' + i + ':' + (team[i] || ''),
+      type: "text",
+      style: {
+        marginTop: 0,
+        flex: '0 0 76px'
+      },
+      "aria-label": r.event.name + ' ' + r.division + ' mark ' + (i + 1),
+      placeholder: r.event.unit,
+      defaultValue: markOf(r, i),
+      onChange: e => setMark(r, i, e.target.value)
+    }))))), /*#__PURE__*/React.createElement("td", null, manual ? /*#__PURE__*/React.createElement("button", {
       className: "btn-ghost btn-sm",
       onClick: () => resetRow(r)
     }, "Reset") : /*#__PURE__*/React.createElement("span", {
@@ -3750,7 +3859,8 @@ function App() {
     results: results,
     setResults: setResults,
     sheetMeta: sheetMeta,
-    setSheetMeta: setSheetMeta
+    setSheetMeta: setSheetMeta,
+    syncLive: sync.live
   }), tab === 'import' && /*#__PURE__*/React.createElement(ImportTab, {
     students: students,
     setStudents: setStudents,

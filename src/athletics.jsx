@@ -606,7 +606,7 @@ const StudentRow = React.memo(function StudentRow({ s, houses, onPatch, onRemove
   );
 });
 
-function StudentsTab({ students, setStudents, houses, results, setResults, sheetMeta, setSheetMeta }) {
+function StudentsTab({ students, setStudents, houses, results, setResults, sheetMeta, setSheetMeta, syncLive }) {
   const [draft, setDraft] = useState({ name: '', yearLevel: '5', gender: 'Female', house: '', homegroup: '', beepTest: '' });
   const [filterYear, setFilterYear] = useState('');
   const [filterHouse, setFilterHouse] = useState('');
@@ -643,6 +643,17 @@ function StudentsTab({ students, setStudents, houses, results, setResults, sheet
   const dupExtra = duplicates.reduce((n, g) => n + g.length - 1, 0);
 
   const mergeDuplicates = () => {
+    /*
+     * Merging while synced achieves nothing: student deletes are revoked on the
+     * server by supabase-protect.sql, so the duplicates stay there and the next
+     * pull puts them straight back. The server has to be cleared first.
+     */
+    if (syncLive && !confirm(
+      'Sync is on, and the duplicates are on Supabase too.\n\n' +
+      'Deleting students from the server is blocked, so the next pull will put them back and this ' +
+      'merge will look like it did nothing.\n\n' +
+      'Turn sync off first, merge, then clear and re-upload the server. Carry on anyway?')) return;
+
     const refCount = {};
     (results || []).forEach(r => { refCount[r.studentId] = (refCount[r.studentId] || 0) + 1; });
     Object.keys(sheetMeta || {}).forEach(k => {
@@ -1423,16 +1434,58 @@ function DistrictTab({ events, students, results, prefs, setPrefs, settings, set
   }, [events, students]);
 
   const rowKey = (r) => divKey(r.event.id, r.division);
-  const manualOf = (r) => dteam[rowKey(r)];
+
+  // Stored as { ids, marks }. Earlier versions stored a bare array of ids, so
+  // that shape is still read.
+  const entryOf = (r) => {
+    const raw = dteam[rowKey(r)];
+    if (!raw) return {};
+    return Array.isArray(raw) ? { ids: raw } : raw;
+  };
   const autoOf = (r) => (alloc.filled[rowKey(r)] || []).map(x => x.studentId);
+  const manualOf = (r) => entryOf(r).ids;
   const teamOf = (r) => manualOf(r) || autoOf(r);
 
-  const setSlot = (r, i, studentId) => {
+  // What they did in this event, if it has been recorded.
+  const recordedMark = (r, studentId) => {
+    const hit = (results || []).find(x => x.eventId === r.event.id && x.studentId === studentId);
+    return hit ? hit.result : '';
+  };
+  const markOf = (r, i) => {
+    const e = entryOf(r);
+    if (e.marks && e.marks[i] !== undefined && e.marks[i] !== '') return e.marks[i];
+    return recordedMark(r, teamOf(r)[i]);
+  };
+
+  const writeEntry = (r, changes) => {
     const key = rowKey(r);
+    setDteam({ ...dteam, [key]: { ...entryOf(r), ...changes } });
+  };
+  const setSlot = (r, i, studentId) => {
     const current = (manualOf(r) || autoOf(r)).slice();
     while (current.length < settings.spotsPerEvent) current.push('');
     current[i] = studentId;
-    setDteam({ ...dteam, [key]: current });
+    writeEntry(r, { ids: current });
+  };
+  const setMark = (r, i, value) => {
+    const marks = (entryOf(r).marks || []).slice();
+    while (marks.length < settings.spotsPerEvent) marks.push('');
+    marks[i] = value;
+    writeEntry(r, { marks });
+  };
+
+  // The first four in this event and division, with what they did — shown on
+  // hovering the event name, so the pick can be sanity-checked without leaving
+  // the page.
+  const topFour = (r) => {
+    const c = alloc.contests.find(x => x.event.id === r.event.id && x.division === r.division);
+    if (!c) return [];
+    return c.ranked.slice(0, 4).map(x => ({
+      place: x.place,
+      name: (studentsById[x.studentId] || {}).name || '?',
+      house: houseName((studentsById[x.studentId] || {}).house),
+      mark: x.result || recordedMark(r, x.studentId) || '',
+    }));
   };
   const resetRow = (r) => {
     const next = { ...dteam };
@@ -1652,6 +1705,10 @@ function DistrictTab({ events, students, results, prefs, setPrefs, settings, set
           by default; type a name into any slot to set it by hand and that row stops being
           recalculated. The list offers everyone in the division, best placing first, with their
           house, placing, how many district events they already hold and their beep test.
+          The box beside each name carries the <strong>time or distance</strong> they go in with —
+          filled from what was recorded, and editable for a seed mark. Hover an event name marked
+          <span className="hint-dot" style={{ position: 'static', marginLeft: 4 }}>i</span> to see
+          who came 1st through 4th and what they did.
         </p>
 
         {Object.keys(programme).length === 0 && (
@@ -1681,9 +1738,29 @@ function DistrictTab({ events, students, results, prefs, setPrefs, settings, set
                   const byId = {}; cands.forEach(c => { byId[c.id] = c.label; });
                   const byLabel = {}; cands.forEach(c => { byLabel[c.label.toLowerCase()] = c.id; });
                   const listId = 'cand-' + key.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+                  const top = topFour(r);
                   return (
                     <tr key={key}>
-                      <td><strong>{r.event.name}</strong></td>
+                      <td>
+                        <span className="hint">
+                          <strong>{r.event.name}</strong>
+                          {top.length > 0 && <span className="hint-dot">i</span>}
+                          {top.length > 0 && (
+                            <span className="hint-box">
+                              <strong style={{ display: 'block', marginBottom: 4 }}>
+                                {r.event.name} — Year {r.year} {r.gender}
+                              </strong>
+                              {top.map(t => (
+                                <span key={t.place} style={{ display: 'block' }}>
+                                  {['1st', '2nd', '3rd', '4th'][t.place - 1]} &nbsp;{t.name}
+                                  {t.house ? ' · ' + t.house : ''}
+                                  {t.mark ? ' — ' + t.mark + ' ' + r.event.unit : ''}
+                                </span>
+                              ))}
+                            </span>
+                          )}
+                        </span>
+                      </td>
                       <td className="muted">{r.gender}</td>
                       <td>
                         <datalist id={listId}>
@@ -1691,18 +1768,25 @@ function DistrictTab({ events, students, results, prefs, setPrefs, settings, set
                         </datalist>
                         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                           {Array.from({ length: settings.spotsPerEvent }).map((_, i) => (
-                            // Keyed on the value it is showing, so Reset — or the
-                            // allocation shifting underneath — remounts it with the
-                            // new name rather than leaving the old text on screen.
-                            <input key={key + ':' + i + ':' + (team[i] || '')}
-                              type="text" list={listId} style={{ marginTop: 0, flex: '1 1 190px' }}
-                              aria-label={r.event.name + ' ' + r.division + ' spot ' + (i + 1)}
-                              placeholder={'spot ' + (i + 1)}
-                              defaultValue={byId[team[i]] || ''}
-                              onChange={e => {
-                                const hit = byLabel[e.target.value.trim().toLowerCase()];
-                                if (hit || !e.target.value.trim()) setSlot(r, i, hit || '');
-                              }} />
+                            <span key={i} style={{ display: 'flex', gap: 6, flex: '1 1 250px' }}>
+                              {/* Keyed on the value shown, so Reset — or the allocation
+                                  shifting underneath — remounts with the new name. */}
+                              <input key={key + ':' + i + ':' + (team[i] || '')}
+                                type="text" list={listId} style={{ marginTop: 0, flex: '1 1 150px' }}
+                                aria-label={r.event.name + ' ' + r.division + ' spot ' + (i + 1)}
+                                placeholder={'spot ' + (i + 1)}
+                                defaultValue={byId[team[i]] || ''}
+                                onChange={e => {
+                                  const hit = byLabel[e.target.value.trim().toLowerCase()];
+                                  if (hit || !e.target.value.trim()) setSlot(r, i, hit || '');
+                                }} />
+                              <input key={'m' + key + ':' + i + ':' + (team[i] || '')}
+                                type="text" style={{ marginTop: 0, flex: '0 0 76px' }}
+                                aria-label={r.event.name + ' ' + r.division + ' mark ' + (i + 1)}
+                                placeholder={r.event.unit}
+                                defaultValue={markOf(r, i)}
+                                onChange={e => setMark(r, i, e.target.value)} />
+                            </span>
                           ))}
                         </div>
                       </td>
@@ -2081,7 +2165,7 @@ function App() {
       {tab === 'houses'   && <HousesTab   houses={houses} setHouses={setHouses} students={students} events={events} results={results} sheetMeta={sheetMeta} scoring={scoring} setScoring={setScoring} />}
       {tab === 'students' && <StudentsTab students={students} setStudents={setStudents} houses={houses}
                                results={results} setResults={setResults}
-                               sheetMeta={sheetMeta} setSheetMeta={setSheetMeta} />}
+                               sheetMeta={sheetMeta} setSheetMeta={setSheetMeta} syncLive={sync.live} />}
       {tab === 'import'   && <ImportTab   students={students} setStudents={setStudents} houses={houses} setHouses={setHouses}
                                onBackup={downloadBackup} onRestore={restoreBackup} />}
       {tab === 'results'  && <ResultsTab  events={events} students={students} results={results} setResults={setResults} houses={houses}

@@ -113,6 +113,11 @@ default; type a name into any slot to set that row by hand and it stops being re
 with their house, their placing, how many district events they already hold and their beep test, so
 a spot can be filled on the evidence rather than on placing alone.
 
+Beside each name is the **time or distance** they go in with, filled from what was recorded and
+editable for a seed mark. Editing a mark does not take the row off the automatic pick. Hovering an
+event name shows who came **1st through 4th** in that division and what each of them did, so the
+selection can be checked without leaving the page.
+
 ## Sync (Supabase)
 
 Optional. Without it the tool is browser-only, which is fine for one person but means the data lives

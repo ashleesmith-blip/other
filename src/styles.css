@@ -87,3 +87,18 @@
 
 /* Place column on the results sheet — narrow, so a 1-4 reads at a glance. */
 .placebox { width: 56px; text-align: center; font-weight: 700; }
+
+/* Hover an event on the district sheet to see the first four and their marks. */
+.hint { position: relative; cursor: help; }
+.hint-dot {
+  display: inline-block; margin-left: 6px; width: 15px; height: 15px; line-height: 15px;
+  border-radius: 50%; background: #dbe3ea; color: #445; font-size: 10px; font-weight: 700;
+  text-align: center; font-style: italic;
+}
+.hint-box {
+  display: none; position: absolute; z-index: 20; left: 0; top: 100%; margin-top: 6px;
+  background: #1a2027; color: #fff; padding: 10px 12px; border-radius: 8px;
+  font-size: 12.5px; line-height: 1.6; white-space: nowrap; font-weight: 400;
+  box-shadow: 0 6px 18px rgba(0,0,0,.22);
+}
+.hint:hover .hint-box, .hint:focus-within .hint-box { display: block; }
