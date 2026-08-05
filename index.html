@@ -1938,7 +1938,11 @@ const StudentRow = React.memo(function StudentRow({
 function StudentsTab({
   students,
   setStudents,
-  houses
+  houses,
+  results,
+  setResults,
+  sheetMeta,
+  setSheetMeta
 }) {
   const [draft, setDraft] = useState({
     name: '',
@@ -1967,6 +1971,74 @@ function StudentsTab({
       homegroup: '',
       beepTest: ''
     });
+  };
+
+  /*
+   * The same child imported twice appears twice on every recording sheet and is
+   * counted twice everywhere. Two records are the same person when name, year,
+   * gender and homegroup all match — the key the importer already dedupes on.
+   *
+   * Merging keeps whichever copy is actually referenced by results and placings
+   * (or the first, if neither is), then repoints everything at it before
+   * deleting the rest, so nothing recorded against a duplicate is lost.
+   */
+  const duplicates = useMemo(() => {
+    const groups = {};
+    students.forEach(st => {
+      const k = [String(st.name || '').trim().toLowerCase(), st.yearLevel || '', st.gender || '', String(st.homegroup || '').trim().toLowerCase()].join('|');
+      (groups[k] = groups[k] || []).push(st);
+    });
+    return Object.keys(groups).map(k => groups[k]).filter(g => g.length > 1);
+  }, [students]);
+  const dupExtra = duplicates.reduce((n, g) => n + g.length - 1, 0);
+  const mergeDuplicates = () => {
+    const refCount = {};
+    (results || []).forEach(r => {
+      refCount[r.studentId] = (refCount[r.studentId] || 0) + 1;
+    });
+    Object.keys(sheetMeta || {}).forEach(k => {
+      ((sheetMeta[k] || {}).places || []).forEach(sid => {
+        if (sid) refCount[sid] = (refCount[sid] || 0) + 1;
+      });
+    });
+    const remap = {}; // duplicate id -> the id being kept
+    const drop = new Set();
+    duplicates.forEach(group => {
+      const keep = group.slice().sort((a, b) => (refCount[b.id] || 0) - (refCount[a.id] || 0))[0];
+      group.forEach(st => {
+        if (st.id === keep.id) return;
+        remap[st.id] = keep.id;
+        drop.add(st.id);
+      });
+    });
+
+    // Repoint results, dropping any that would duplicate one already on the keeper.
+    const seenResult = new Set();
+    const nextResults = [];
+    (results || []).forEach(r => {
+      const sid = remap[r.studentId] || r.studentId;
+      const key = r.eventId + '|' + sid;
+      if (seenResult.has(key)) return;
+      seenResult.add(key);
+      nextResults.push(sid === r.studentId ? r : {
+        ...r,
+        studentId: sid
+      });
+    });
+    const nextMeta = {};
+    Object.keys(sheetMeta || {}).forEach(k => {
+      const m = sheetMeta[k];
+      nextMeta[k] = {
+        ...m,
+        places: (m.places || []).map(sid => sid && remap[sid] || sid)
+      };
+    });
+    const removedResults = (results || []).length - nextResults.length;
+    if (!confirm('Merge ' + dupExtra + ' duplicate record' + (dupExtra === 1 ? '' : 's') + ' into ' + duplicates.length + ' student' + (duplicates.length === 1 ? '' : 's') + '?\n\n' + 'Results and placings recorded against a duplicate move to the copy that is kept' + (removedResults ? ', and ' + removedResults + ' duplicated result row' + (removedResults === 1 ? '' : 's') + ' will be dropped' : '') + '.')) return;
+    setResults(nextResults);
+    setSheetMeta(nextMeta);
+    setStudents(students.filter(st => !drop.has(st.id)));
+    setEditingId(null);
   };
 
   // Stable identities, so StudentRow's memo actually holds. The functional form
@@ -2029,7 +2101,29 @@ function StudentsTab({
     setBulkTarget('');
   };
   const houseName = id => (houses.find(h => h.id === id) || {}).name || '—';
-  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h2", null, "Students (", students.length, ")"), /*#__PURE__*/React.createElement("div", {
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h2", null, "Students (", students.length, ")"), dupExtra > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "card"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "warn",
+    style: {
+      marginBottom: 12
+    }
+  }, /*#__PURE__*/React.createElement("strong", null, dupExtra, " duplicate record", dupExtra === 1 ? '' : 's'), " \u2014 ", duplicates.length, ' ', "student", duplicates.length === 1 ? ' is' : 's are', " in the list more than once, so", ' ', duplicates.length === 1 ? 'they appear' : 'they each appear', " twice on the recording sheets and are counted twice in participation."), /*#__PURE__*/React.createElement("div", {
+    className: "scroll",
+    style: {
+      maxHeight: 220,
+      marginBottom: 12
+    }
+  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Name"), /*#__PURE__*/React.createElement("th", null, "Year"), /*#__PURE__*/React.createElement("th", null, "Gender"), /*#__PURE__*/React.createElement("th", null, "Homegroup"), /*#__PURE__*/React.createElement("th", null, "Copies"))), /*#__PURE__*/React.createElement("tbody", null, duplicates.slice(0, 40).map(g => /*#__PURE__*/React.createElement("tr", {
+    key: g[0].id
+  }, /*#__PURE__*/React.createElement("td", null, g[0].name), /*#__PURE__*/React.createElement("td", null, g[0].yearLevel), /*#__PURE__*/React.createElement("td", null, g[0].gender), /*#__PURE__*/React.createElement("td", {
+    className: "muted"
+  }, g[0].homegroup), /*#__PURE__*/React.createElement("td", null, g.length)))))), duplicates.length > 40 && /*#__PURE__*/React.createElement("p", {
+    className: "muted"
+  }, "\u2026and ", duplicates.length - 40, " more."), /*#__PURE__*/React.createElement("button", {
+    className: "btn",
+    onClick: mergeDuplicates
+  }, "Merge duplicates \u2014 keeps one of each, moves their results across")), /*#__PURE__*/React.createElement("div", {
     className: "card"
   }, /*#__PURE__*/React.createElement("h3", null, "Add a student"), /*#__PURE__*/React.createElement("div", {
     className: "row"
@@ -3652,7 +3746,11 @@ function App() {
   }), tab === 'students' && /*#__PURE__*/React.createElement(StudentsTab, {
     students: students,
     setStudents: setStudents,
-    houses: houses
+    houses: houses,
+    results: results,
+    setResults: setResults,
+    sheetMeta: sheetMeta,
+    setSheetMeta: setSheetMeta
   }), tab === 'import' && /*#__PURE__*/React.createElement(ImportTab, {
     students: students,
     setStudents: setStudents,

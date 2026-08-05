@@ -606,7 +606,7 @@ const StudentRow = React.memo(function StudentRow({ s, houses, onPatch, onRemove
   );
 });
 
-function StudentsTab({ students, setStudents, houses }) {
+function StudentsTab({ students, setStudents, houses, results, setResults, sheetMeta, setSheetMeta }) {
   const [draft, setDraft] = useState({ name: '', yearLevel: '5', gender: 'Female', house: '', homegroup: '', beepTest: '' });
   const [filterYear, setFilterYear] = useState('');
   const [filterHouse, setFilterHouse] = useState('');
@@ -619,6 +619,77 @@ function StudentsTab({ students, setStudents, houses }) {
     if (!draft.name.trim() || !draft.house) return alert('A student needs at least a name and a house.');
     setStudents(students.concat([{ ...draft, id: uid('s'), name: draft.name.trim() }]));
     setDraft({ ...draft, name: '', homegroup: '', beepTest: '' });
+  };
+
+  /*
+   * The same child imported twice appears twice on every recording sheet and is
+   * counted twice everywhere. Two records are the same person when name, year,
+   * gender and homegroup all match — the key the importer already dedupes on.
+   *
+   * Merging keeps whichever copy is actually referenced by results and placings
+   * (or the first, if neither is), then repoints everything at it before
+   * deleting the rest, so nothing recorded against a duplicate is lost.
+   */
+  const duplicates = useMemo(() => {
+    const groups = {};
+    students.forEach(st => {
+      const k = [String(st.name || '').trim().toLowerCase(), st.yearLevel || '',
+        st.gender || '', String(st.homegroup || '').trim().toLowerCase()].join('|');
+      (groups[k] = groups[k] || []).push(st);
+    });
+    return Object.keys(groups).map(k => groups[k]).filter(g => g.length > 1);
+  }, [students]);
+
+  const dupExtra = duplicates.reduce((n, g) => n + g.length - 1, 0);
+
+  const mergeDuplicates = () => {
+    const refCount = {};
+    (results || []).forEach(r => { refCount[r.studentId] = (refCount[r.studentId] || 0) + 1; });
+    Object.keys(sheetMeta || {}).forEach(k => {
+      ((sheetMeta[k] || {}).places || []).forEach(sid => {
+        if (sid) refCount[sid] = (refCount[sid] || 0) + 1;
+      });
+    });
+
+    const remap = {};                    // duplicate id -> the id being kept
+    const drop = new Set();
+    duplicates.forEach(group => {
+      const keep = group.slice().sort((a, b) => (refCount[b.id] || 0) - (refCount[a.id] || 0))[0];
+      group.forEach(st => {
+        if (st.id === keep.id) return;
+        remap[st.id] = keep.id;
+        drop.add(st.id);
+      });
+    });
+
+    // Repoint results, dropping any that would duplicate one already on the keeper.
+    const seenResult = new Set();
+    const nextResults = [];
+    (results || []).forEach(r => {
+      const sid = remap[r.studentId] || r.studentId;
+      const key = r.eventId + '|' + sid;
+      if (seenResult.has(key)) return;
+      seenResult.add(key);
+      nextResults.push(sid === r.studentId ? r : { ...r, studentId: sid });
+    });
+
+    const nextMeta = {};
+    Object.keys(sheetMeta || {}).forEach(k => {
+      const m = sheetMeta[k];
+      nextMeta[k] = { ...m, places: (m.places || []).map(sid => (sid && remap[sid]) || sid) };
+    });
+
+    const removedResults = (results || []).length - nextResults.length;
+    if (!confirm('Merge ' + dupExtra + ' duplicate record' + (dupExtra === 1 ? '' : 's') + ' into ' +
+      duplicates.length + ' student' + (duplicates.length === 1 ? '' : 's') + '?\n\n' +
+      'Results and placings recorded against a duplicate move to the copy that is kept' +
+      (removedResults ? ', and ' + removedResults + ' duplicated result row' +
+        (removedResults === 1 ? '' : 's') + ' will be dropped' : '') + '.')) return;
+
+    setResults(nextResults);
+    setSheetMeta(nextMeta);
+    setStudents(students.filter(st => !drop.has(st.id)));
+    setEditingId(null);
   };
 
   // Stable identities, so StudentRow's memo actually holds. The functional form
@@ -691,6 +762,34 @@ function StudentsTab({ students, setStudents, houses }) {
   return (
     <div>
       <h2>Students ({students.length})</h2>
+
+      {dupExtra > 0 && (
+        <div className="card">
+          <div className="warn" style={{ marginBottom: 12 }}>
+            <strong>{dupExtra} duplicate record{dupExtra === 1 ? '' : 's'}</strong> — {duplicates.length}
+            {' '}student{duplicates.length === 1 ? ' is' : 's are'} in the list more than once, so
+            {' '}{duplicates.length === 1 ? 'they appear' : 'they each appear'} twice on the recording
+            sheets and are counted twice in participation.
+          </div>
+          <div className="scroll" style={{ maxHeight: 220, marginBottom: 12 }}>
+            <table>
+              <thead><tr><th>Name</th><th>Year</th><th>Gender</th><th>Homegroup</th><th>Copies</th></tr></thead>
+              <tbody>
+                {duplicates.slice(0, 40).map(g => (
+                  <tr key={g[0].id}>
+                    <td>{g[0].name}</td><td>{g[0].yearLevel}</td><td>{g[0].gender}</td>
+                    <td className="muted">{g[0].homegroup}</td><td>{g.length}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {duplicates.length > 40 && <p className="muted">…and {duplicates.length - 40} more.</p>}
+          <button className="btn" onClick={mergeDuplicates}>
+            Merge duplicates — keeps one of each, moves their results across
+          </button>
+        </div>
+      )}
 
       <div className="card">
         <h3>Add a student</h3>
@@ -1980,7 +2079,9 @@ function App() {
 
       {tab === 'events'   && <EventsTab   events={events} setEvents={setEvents} />}
       {tab === 'houses'   && <HousesTab   houses={houses} setHouses={setHouses} students={students} events={events} results={results} sheetMeta={sheetMeta} scoring={scoring} setScoring={setScoring} />}
-      {tab === 'students' && <StudentsTab students={students} setStudents={setStudents} houses={houses} />}
+      {tab === 'students' && <StudentsTab students={students} setStudents={setStudents} houses={houses}
+                               results={results} setResults={setResults}
+                               sheetMeta={sheetMeta} setSheetMeta={setSheetMeta} />}
       {tab === 'import'   && <ImportTab   students={students} setStudents={setStudents} houses={houses} setHouses={setHouses}
                                onBackup={downloadBackup} onRestore={restoreBackup} />}
       {tab === 'results'  && <ResultsTab  events={events} students={students} results={results} setResults={setResults} houses={houses}
