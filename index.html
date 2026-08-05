@@ -585,51 +585,49 @@ function diffById(localRows, shadowRows) {
     removed
   };
 }
+
+/*
+ * Push, in foreign-key order.
+ *
+ * These used to all fire at once, which meant a result could reach the server
+ * before the student it points at and be rejected on the foreign key. Parents
+ * go first and each stage is awaited: houses and events, then students, then
+ * everything that references them.
+ *
+ * Deletes for students, houses and events are deliberately not sent.
+ * supabase-protect.sql revokes that permission precisely so an emptied browser
+ * cannot wipe the roll, and attempting it would only fail the whole push — so
+ * they are reported back instead and removed in Supabase if genuinely wanted.
+ */
+const PROTECTED_FROM_DELETE = ['students', 'houses', 'events'];
 async function pushChanges(cfg, local, shadow) {
-  const jobs = [];
   const touched = [];
-  const table = (name, toRow, localList, shadowList, keyed) => {
-    const localRows = localList.map(toRow);
-    const shadowRows = (shadowList || []).map(toRow);
+  const skipped = [];
+  const up = {}; // table -> rows to upsert
+  const del = {}; // table -> ids to remove
+
+  const plan = (name, toRow, localList, shadowList) => {
     const {
       changed,
       removed
-    } = diffById(localRows, shadowRows);
-    if (changed.length) {
-      jobs.push(upsert(cfg, name, changed));
-      touched.push(name + ' +' + changed.length);
-    }
+    } = diffById((localList || []).map(toRow), (shadowList || []).map(toRow));
+    if (changed.length) up[name] = changed;
     if (removed.length) {
-      jobs.push(removeByIds(cfg, name, removed));
-      touched.push(name + ' -' + removed.length);
+      if (PROTECTED_FROM_DELETE.indexOf(name) >= 0) skipped.push(removed.length + ' ' + name + ' not removed on the server');else del[name] = removed;
     }
   };
-  table('houses', (h, i) => toRowHouse(h, i), local.houses, shadow.houses);
-  table('events', (e, i) => toRowEvent(e, i), local.events, shadow.events);
-  table('students', toRowStudent, local.students, shadow.students);
-  table('results', toRowResult, local.results, shadow.results);
+  plan('houses', (h, i) => toRowHouse(h, i), local.houses, shadow.houses);
+  plan('events', (e, i) => toRowEvent(e, i), local.events, shadow.events);
+  plan('students', toRowStudent, local.students, shadow.students);
+  plan('results', toRowResult, local.results, shadow.results);
 
-  // Sheets have a composite key, so they are diffed on the local map key.
+  // Sheets carry a composite key, so they diff on the local map key.
   const sheetRows = [];
   Object.keys(local.sheetMeta || {}).forEach(k => {
     const before = (shadow.sheetMeta || {})[k];
     if (!before || !sameJson(before, local.sheetMeta[k])) sheetRows.push(toRowSheet(k, local.sheetMeta[k]));
   });
-  if (sheetRows.length) {
-    jobs.push(upsert(cfg, 'sheets', sheetRows, 'event_id,division'));
-    touched.push('sheets +' + sheetRows.length);
-  }
   const goneSheets = Object.keys(shadow.sheetMeta || {}).filter(k => !(local.sheetMeta || {})[k]);
-  goneSheets.forEach(k => {
-    const cut = k.indexOf('::');
-    jobs.push(rest(cfg, 'sheets?event_id=eq.' + encodeURIComponent(k.slice(0, cut)) + '&division=eq.' + encodeURIComponent(k.slice(cut + 2)), {
-      method: 'DELETE',
-      headers: restHeaders(cfg, {
-        'Prefer': 'return=minimal'
-      })
-    }));
-  });
-  if (goneSheets.length) touched.push('sheets -' + goneSheets.length);
   const settingRows = [];
   [['scoring', local.scoring, shadow.scoring], ['district', local.settings, shadow.settings], ['prefs', local.prefs, shadow.prefs]].forEach(([key, now, before]) => {
     if (!sameJson(now, before)) settingRows.push({
@@ -637,12 +635,41 @@ async function pushChanges(cfg, local, shadow) {
       value: now
     });
   });
-  if (settingRows.length) {
-    jobs.push(upsert(cfg, 'settings', settingRows));
-    touched.push('settings +' + settingRows.length);
+  const send = async (name, onConflict) => {
+    if (!up[name] || !up[name].length) return;
+    await upsert(cfg, name, up[name], onConflict);
+    touched.push(name + ' +' + up[name].length);
+  };
+
+  // Children are removed before their parents; parents are written before their children.
+  for (const name of ['results']) {
+    if (del[name]) {
+      await removeByIds(cfg, name, del[name]);
+      touched.push(name + ' -' + del[name].length);
+    }
   }
-  await Promise.all(jobs);
-  return touched;
+  for (const k of goneSheets) {
+    const cut = k.indexOf('::');
+    await rest(cfg, 'sheets?event_id=eq.' + encodeURIComponent(k.slice(0, cut)) + '&division=eq.' + encodeURIComponent(k.slice(cut + 2)), {
+      method: 'DELETE',
+      headers: restHeaders(cfg, {
+        'Prefer': 'return=minimal'
+      })
+    });
+  }
+  if (goneSheets.length) touched.push('sheets -' + goneSheets.length);
+  await Promise.all([send('houses'), send('events')]);
+  await send('students');
+  await Promise.all([send('results'), (async () => {
+    if (!sheetRows.length) return;
+    await upsert(cfg, 'sheets', sheetRows, 'event_id,division');
+    touched.push('sheets +' + sheetRows.length);
+  })(), (async () => {
+    if (!settingRows.length) return;
+    await upsert(cfg, 'settings', settingRows);
+    touched.push('settings +' + settingRows.length);
+  })()]);
+  return touched.concat(skipped);
 }
 
 /* ---------------------------------------------------------------- the hook */
