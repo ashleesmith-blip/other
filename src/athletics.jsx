@@ -623,18 +623,26 @@ function StudentsTab({ students, setStudents, houses, results, setResults, sheet
 
   /*
    * The same child imported twice appears twice on every recording sheet and is
-   * counted twice everywhere. Two records are the same person when name, year,
-   * gender and homegroup all match — the key the importer already dedupes on.
+   * counted twice everywhere.
    *
-   * Merging keeps whichever copy is actually referenced by results and placings
-   * (or the first, if neither is), then repoints everything at it before
-   * deleting the rest, so nothing recorded against a duplicate is lost.
+   * Two records are the same person when NAME and HOMEGROUP match. Year level
+   * and gender are left out of the key on purpose: once a roll has been doubled
+   * the copies get edited apart — a year corrected on one, a gender on the other
+   * — and a stricter key leaves exactly those pairs behind. Name plus homegroup
+   * is unique per student in a class list, and the names that legitimately
+   * repeat sit in different homegroups. Where a record has no homegroup at all
+   * there is nothing to disambiguate on, so year and gender are used instead.
+   *
+   * The survivor is whichever copy the results and placings actually reference,
+   * then whichever has a year level — so a copy that lost its year is not the
+   * one kept. Everything is repointed at it before the rest are deleted.
    */
   const duplicates = useMemo(() => {
     const groups = {};
     students.forEach(st => {
-      const k = [String(st.name || '').trim().toLowerCase(), st.yearLevel || '',
-        st.gender || '', String(st.homegroup || '').trim().toLowerCase()].join('|');
+      const name = String(st.name || '').trim().toLowerCase();
+      const hg = String(st.homegroup || '').trim().toLowerCase();
+      const k = hg ? name + '|' + hg : [name, st.yearLevel || '', st.gender || ''].join('|');
       (groups[k] = groups[k] || []).push(st);
     });
     return Object.keys(groups).map(k => groups[k]).filter(g => g.length > 1);
@@ -665,7 +673,9 @@ function StudentsTab({ students, setStudents, houses, results, setResults, sheet
     const remap = {};                    // duplicate id -> the id being kept
     const drop = new Set();
     duplicates.forEach(group => {
-      const keep = group.slice().sort((a, b) => (refCount[b.id] || 0) - (refCount[a.id] || 0))[0];
+      const keep = group.slice().sort((a, b) =>
+        (refCount[b.id] || 0) - (refCount[a.id] || 0) ||
+        (a.yearLevel ? 0 : 1) - (b.yearLevel ? 0 : 1))[0];
       group.forEach(st => {
         if (st.id === keep.id) return;
         remap[st.id] = keep.id;

@@ -8,19 +8,26 @@
 -- the next sync pulls them straight back. This does it server-side, where the
 -- SQL editor runs as the owner rather than as the app.
 --
--- Two records are the same child when name, year level, gender and homegroup
--- all match — the same rule the importer and the in-app merge use. The survivor
--- is the lowest id, and everything recorded against the others is repointed at
--- it before they go.
+-- Two records are the same child when NAME and HOMEGROUP match. Year level and
+-- gender are deliberately not part of the key: once a roll has been doubled the
+-- two copies get edited apart — a year level corrected on one, a gender fixed on
+-- the other — and a stricter key then leaves those pairs behind. Name plus
+-- homegroup is unique per student in the class list, so it is safe to key on;
+-- the seven names that legitimately repeat (Ivy M, Anna P, Michelle O, Olivia T,
+-- Oscar W, Zoe W, William G) all sit in different homegroups and are untouched.
+--
+-- The survivor is whichever copy has a year level set, then the lowest id, so a
+-- record that lost its year level is not the one that is kept.
 
 begin;
 
--- Who is being kept, and who is being folded into them.
 create temporary table dup_map on commit drop as
 with ranked as (
   select id,
-         min(id) over (partition by lower(trim(name)), coalesce(year_level, ''),
-                                    coalesce(gender, ''), lower(coalesce(homegroup, ''))) as keep_id
+         first_value(id) over (
+           partition by lower(trim(name)), lower(coalesce(homegroup, ''))
+           order by (case when coalesce(year_level, '') = '' then 1 else 0 end), id
+         ) as keep_id
   from students
 )
 select id as dup_id, keep_id from ranked where id <> keep_id;
@@ -60,6 +67,11 @@ commit;
 --   select count(*) as students from students;
 --
 -- Anything still duplicated (should return no rows):
---   select lower(trim(name)) as name, year_level, gender, homegroup, count(*)
---   from students
---   group by 1,2,3,4 having count(*) > 1;
+--   select lower(trim(name)) as name, homegroup, count(*)
+--   from students group by 1,2 having count(*) > 1;
+--
+-- Students sharing a name but genuinely different people, for reassurance:
+--   select name, year_level, gender, homegroup from students
+--   where lower(trim(name)) in (
+--     select lower(trim(name)) from students group by 1 having count(*) > 1)
+--   order by name, homegroup;

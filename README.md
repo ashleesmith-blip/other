@@ -169,8 +169,14 @@ the policies at the bottom of `supabase.sql` and add Supabase Auth; no schema ch
 The importer skips anyone already on the list, but a roll can still end up doubled — most often by
 loading a class list on top of one whose records carry different internal ids.
 
-**Students → Merge duplicates** fixes the browser: it keeps whichever copy the results and placings
-reference and moves everything onto it. **This is not enough on its own once sync is on**, because
+Two records are treated as the same child when **name and homegroup** match. Year level and gender
+are deliberately left out: once a roll is doubled the copies get edited apart — a year corrected on
+one, a gender on the other — and a stricter key leaves exactly those pairs behind. Name plus
+homegroup is unique per student in a class list, so the seven names that legitimately repeat (Ivy M,
+Anna P, Michelle O, Olivia T, Oscar W, Zoe W, William G) sit in different homegroups and are never
+touched. The survivor is whichever copy the results reference, then whichever has a year level.
+
+**Students → Merge duplicates** fixes the browser: it keeps that copy and moves everything onto it. **This is not enough on its own once sync is on**, because
 `supabase-protect.sql` revokes student deletes, so the copies stay on the server and the next pull
 brings them back — the merge looks like it did nothing. Run
 [`supabase-dedupe.sql`](supabase-dedupe.sql) in the SQL editor as well; it does the same job
