@@ -2195,6 +2195,64 @@ const StudentRow = React.memo(function StudentRow({
   }, "Remove")));
 });
 const attachedTitle = (name, a) => name + ' has ' + [a.results ? a.results + ' recorded result' + (a.results === 1 ? '' : 's') : '', a.placings.length ? a.placings.map(p => ordinal(p.place) + ' in ' + p.event).join(', ') : '', a.spots ? a.spots + ' district team spot' + (a.spots === 1 ? '' : 's') : '', a.hasPrefs ? 'event preferences recorded' : ''].filter(Boolean).join('; ') + '. Removing them takes that with it' + (a.points ? ', and ' + a.points + ' point' + (a.points === 1 ? '' : 's') + ' off their house' : '') + '.';
+
+/*
+ * The same dedupe as supabase-dedupe.sql, kept here so it can be copied out of
+ * the app rather than found in a file on somebody's laptop.
+ *
+ * Merging in the browser cannot fix a synced project on its own: student
+ * deletes are revoked for the app by supabase-protect.sql, so the copies stay
+ * on the server and the next pull brings them back — which looks exactly like
+ * the merge button doing nothing. The SQL editor runs as the owner, so it can.
+ */
+const DEDUPE_SQL = `-- Remove duplicated students, and move their results onto the copy that is kept.
+-- Safe to re-run: with nothing duplicated it changes nothing.
+begin;
+
+create temporary table dup_map on commit drop as
+with ranked as (
+  select id,
+         first_value(id) over (
+           partition by lower(trim(name)), lower(coalesce(homegroup, ''))
+           order by (case when coalesce(year_level, '') = '' then 1 else 0 end), id
+         ) as keep_id
+  from students
+)
+select id as dup_id, keep_id from ranked where id <> keep_id;
+
+-- A result on a duplicate would collide with one already on the survivor.
+delete from results r
+using dup_map m
+where r.student_id = m.dup_id
+  and exists (
+    select 1 from results keep
+    where keep.student_id = m.keep_id and keep.event_id = r.event_id
+  );
+
+update results r
+set student_id = m.keep_id
+from dup_map m
+where r.student_id = m.dup_id;
+
+-- Placings are an array of student ids on the sheet, so each element is mapped.
+update sheets s
+set places = (
+  select array_agg(coalesce(m.keep_id, elem) order by ord)
+  from unnest(s.places) with ordinality as t(elem, ord)
+  left join dup_map m on m.dup_id = t.elem
+)
+where exists (
+  select 1 from unnest(s.places) as elem
+  join dup_map m on m.dup_id = elem
+);
+
+delete from students s using dup_map m where s.id = m.dup_id;
+
+commit;
+
+-- Should return no rows:
+select lower(trim(name)) as name, homegroup, count(*)
+from students group by 1,2 having count(*) > 1;`;
 function StudentsTab({
   students,
   setStudents,
@@ -2211,6 +2269,20 @@ function StudentsTab({
   onDropPrefs,
   syncLive
 }) {
+  const [showSql, setShowSql] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const copySql = () => {
+    const done = () => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(DEDUPE_SQL).then(done, () => setShowSql(true));
+    } else {
+      // No clipboard permission on this browser — show it to be copied by hand.
+      setShowSql(true);
+    }
+  };
   const [draft, setDraft] = useState({
     name: '',
     yearLevel: '5',
@@ -2491,7 +2563,62 @@ function StudentsTab({
     className: "muted"
   }, g[0].homegroup), /*#__PURE__*/React.createElement("td", null, g.length)))))), duplicates.length > 40 && /*#__PURE__*/React.createElement("p", {
     className: "muted"
-  }, "\u2026and ", duplicates.length - 40, " more."), /*#__PURE__*/React.createElement("button", {
+  }, "\u2026and ", duplicates.length - 40, " more."), syncLive ? /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("p", {
+    style: {
+      marginTop: 0
+    }
+  }, /*#__PURE__*/React.createElement("strong", null, "Sync is on, so the copies are on Supabase too."), " The app is not allowed to delete students there \u2014 that is what stops a browser wiping the roll \u2014 so merging here alone would be undone by the next pull. Fix the server instead, and this browser will pick it up:"), /*#__PURE__*/React.createElement("ol", {
+    style: {
+      fontSize: 15,
+      lineHeight: 1.7,
+      marginTop: 0
+    }
+  }, /*#__PURE__*/React.createElement("li", null, "Press ", /*#__PURE__*/React.createElement("strong", null, "Copy the SQL"), " below."), /*#__PURE__*/React.createElement("li", null, "In Supabase, open ", /*#__PURE__*/React.createElement("strong", null, "SQL Editor"), " \u2192 ", /*#__PURE__*/React.createElement("strong", null, "New query"), ", paste, and press ", /*#__PURE__*/React.createElement("strong", null, "Run"), "."), /*#__PURE__*/React.createElement("li", null, "Come back here and press ", /*#__PURE__*/React.createElement("strong", null, "Sync \u2192 Connect and pull"), ".")), /*#__PURE__*/React.createElement("div", {
+    className: "row",
+    style: {
+      alignItems: 'center'
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "btn",
+    style: {
+      flex: '0 0 auto'
+    },
+    onClick: copySql
+  }, copied ? 'Copied ✓' : 'Copy the SQL'), /*#__PURE__*/React.createElement("button", {
+    className: "btn-ghost",
+    style: {
+      flex: '0 0 auto'
+    },
+    onClick: () => setShowSql(!showSql)
+  }, showSql ? 'hide it' : 'show it'), /*#__PURE__*/React.createElement("span", {
+    className: "muted",
+    style: {
+      flex: '1 1 200px'
+    }
+  }, "It keeps whichever copy the results point at, moves everything onto it, and is safe to run twice.")), showSql && /*#__PURE__*/React.createElement("textarea", {
+    readOnly: true,
+    value: DEDUPE_SQL,
+    rows: 14,
+    spellCheck: false,
+    "aria-label": "Dedupe SQL",
+    style: {
+      width: '100%',
+      marginTop: 10,
+      fontFamily: 'ui-monospace, Menlo, Consolas, monospace',
+      fontSize: 12,
+      lineHeight: 1.45
+    },
+    onFocus: e => e.target.select()
+  }), /*#__PURE__*/React.createElement("p", {
+    className: "muted",
+    style: {
+      marginBottom: 0,
+      marginTop: 12
+    }
+  }, "Take a backup from the Import tab first.", ' ', /*#__PURE__*/React.createElement("button", {
+    className: "linkish",
+    onClick: mergeDuplicates
+  }, "Merge in this browser only"), ' ', "\u2014 for when sync is about to be turned off anyway.")) : /*#__PURE__*/React.createElement("button", {
     className: "btn",
     onClick: mergeDuplicates
   }, "Merge duplicates \u2014 keeps one of each, moves their results across")), /*#__PURE__*/React.createElement("div", {

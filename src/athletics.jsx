@@ -772,8 +772,77 @@ const attachedTitle = (name, a) => name + ' has ' + [
 ].filter(Boolean).join('; ') + '. Removing them takes that with it' +
   (a.points ? ', and ' + a.points + ' point' + (a.points === 1 ? '' : 's') + ' off their house' : '') + '.';
 
+/*
+ * The same dedupe as supabase-dedupe.sql, kept here so it can be copied out of
+ * the app rather than found in a file on somebody's laptop.
+ *
+ * Merging in the browser cannot fix a synced project on its own: student
+ * deletes are revoked for the app by supabase-protect.sql, so the copies stay
+ * on the server and the next pull brings them back — which looks exactly like
+ * the merge button doing nothing. The SQL editor runs as the owner, so it can.
+ */
+const DEDUPE_SQL = `-- Remove duplicated students, and move their results onto the copy that is kept.
+-- Safe to re-run: with nothing duplicated it changes nothing.
+begin;
+
+create temporary table dup_map on commit drop as
+with ranked as (
+  select id,
+         first_value(id) over (
+           partition by lower(trim(name)), lower(coalesce(homegroup, ''))
+           order by (case when coalesce(year_level, '') = '' then 1 else 0 end), id
+         ) as keep_id
+  from students
+)
+select id as dup_id, keep_id from ranked where id <> keep_id;
+
+-- A result on a duplicate would collide with one already on the survivor.
+delete from results r
+using dup_map m
+where r.student_id = m.dup_id
+  and exists (
+    select 1 from results keep
+    where keep.student_id = m.keep_id and keep.event_id = r.event_id
+  );
+
+update results r
+set student_id = m.keep_id
+from dup_map m
+where r.student_id = m.dup_id;
+
+-- Placings are an array of student ids on the sheet, so each element is mapped.
+update sheets s
+set places = (
+  select array_agg(coalesce(m.keep_id, elem) order by ord)
+  from unnest(s.places) with ordinality as t(elem, ord)
+  left join dup_map m on m.dup_id = t.elem
+)
+where exists (
+  select 1 from unnest(s.places) as elem
+  join dup_map m on m.dup_id = elem
+);
+
+delete from students s using dup_map m where s.id = m.dup_id;
+
+commit;
+
+-- Should return no rows:
+select lower(trim(name)) as name, homegroup, count(*)
+from students group by 1,2 having count(*) > 1;`;
+
 function StudentsTab({ students, setStudents, houses, results, setResults, sheetMeta, setSheetMeta,
                       events, dteam, prefs, scoring, onDropFromTeam, onDropPrefs, syncLive }) {
+  const [showSql, setShowSql] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const copySql = () => {
+    const done = () => { setCopied(true); setTimeout(() => setCopied(false), 2500); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(DEDUPE_SQL).then(done, () => setShowSql(true));
+    } else {
+      // No clipboard permission on this browser — show it to be copied by hand.
+      setShowSql(true);
+    }
+  };
   const [draft, setDraft] = useState({ name: '', yearLevel: '5', gender: 'Female', house: '', homegroup: '', beepTest: '' });
   const [filterYear, setFilterYear] = useState('');
   const [filterHouse, setFilterHouse] = useState('');
@@ -1065,9 +1134,58 @@ function StudentsTab({ students, setStudents, houses, results, setResults, sheet
             </table>
           </div>
           {duplicates.length > 40 && <p className="muted">…and {duplicates.length - 40} more.</p>}
-          <button className="btn" onClick={mergeDuplicates}>
-            Merge duplicates — keeps one of each, moves their results across
-          </button>
+
+          {syncLive ? (
+            <div>
+              {/*
+                * With sync on, the copies are on Supabase as well, and the app is
+                * not allowed to delete students there. Merging here alone would
+                * be undone by the next pull, so the server is fixed first and
+                * this browser picks the result up.
+                */}
+              <p style={{ marginTop: 0 }}>
+                <strong>Sync is on, so the copies are on Supabase too.</strong> The app is not
+                allowed to delete students there — that is what stops a browser wiping the roll —
+                so merging here alone would be undone by the next pull. Fix the server instead,
+                and this browser will pick it up:
+              </p>
+              <ol style={{ fontSize: 15, lineHeight: 1.7, marginTop: 0 }}>
+                <li>Press <strong>Copy the SQL</strong> below.</li>
+                <li>In Supabase, open <strong>SQL Editor</strong> → <strong>New query</strong>, paste, and press <strong>Run</strong>.</li>
+                <li>Come back here and press <strong>Sync → Connect and pull</strong>.</li>
+              </ol>
+              <div className="row" style={{ alignItems: 'center' }}>
+                <button className="btn" style={{ flex: '0 0 auto' }} onClick={copySql}>
+                  {copied ? 'Copied ✓' : 'Copy the SQL'}
+                </button>
+                <button className="btn-ghost" style={{ flex: '0 0 auto' }}
+                  onClick={() => setShowSql(!showSql)}>
+                  {showSql ? 'hide it' : 'show it'}
+                </button>
+                <span className="muted" style={{ flex: '1 1 200px' }}>
+                  It keeps whichever copy the results point at, moves everything onto it, and is
+                  safe to run twice.
+                </span>
+              </div>
+              {showSql && (
+                <textarea readOnly value={DEDUPE_SQL} rows={14} spellCheck={false}
+                  aria-label="Dedupe SQL"
+                  style={{ width: '100%', marginTop: 10, fontFamily: 'ui-monospace, Menlo, Consolas, monospace',
+                    fontSize: 12, lineHeight: 1.45 }}
+                  onFocus={e => e.target.select()} />
+              )}
+              <p className="muted" style={{ marginBottom: 0, marginTop: 12 }}>
+                Take a backup from the Import tab first.{' '}
+                <button className="linkish" onClick={mergeDuplicates}>
+                  Merge in this browser only
+                </button>{' '}— for when sync is about to be turned off anyway.
+              </p>
+            </div>
+          ) : (
+            <button className="btn" onClick={mergeDuplicates}>
+              Merge duplicates — keeps one of each, moves their results across
+            </button>
+          )}
         </div>
       )}
 
