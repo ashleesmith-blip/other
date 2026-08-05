@@ -1492,10 +1492,14 @@ function EventsTab({
     }]));
     setDraft(blank);
   };
+  const patch = (id, changes) => setEvents(events.map(e => e.id === id ? {
+    ...e,
+    ...changes
+  } : e));
   const remove = id => {
-    if (confirm('Remove this event? Results recorded against it stay in the data but will not be shown.')) {
-      setEvents(events.filter(e => e.id !== id));
-    }
+    const ev = events.find(e => e.id === id);
+    if (!confirm('Remove ' + (ev ? ev.name : 'this event') + '?\n\n' + 'Results recorded against it stay in the data but stop being shown, and every sheet ' + 'number after it shifts.')) return;
+    setEvents(events.filter(e => e.id !== id));
   };
   const toggleYear = y => setDraft(d => ({
     ...d,
@@ -1583,17 +1587,101 @@ function EventsTab({
     onClick: add
   }, "Add event")), /*#__PURE__*/React.createElement("div", {
     className: "card"
-  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Event"), /*#__PURE__*/React.createElement("th", null, "Type"), /*#__PURE__*/React.createElement("th", null, "Winner"), /*#__PURE__*/React.createElement("th", null, "Year levels"), /*#__PURE__*/React.createElement("th", null))), /*#__PURE__*/React.createElement("tbody", null, events.map(ev => /*#__PURE__*/React.createElement("tr", {
-    key: ev.id
-  }, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("strong", null, ev.name)), /*#__PURE__*/React.createElement("td", {
+  }, /*#__PURE__*/React.createElement("p", {
+    className: "muted",
     style: {
-      textTransform: 'capitalize'
+      marginTop: 0
     }
-  }, ev.type), /*#__PURE__*/React.createElement("td", {
-    className: "muted"
-  }, ev.scoring === 'lower' ? 'fastest' : 'furthest / highest', " (", ev.unit, ")"), /*#__PURE__*/React.createElement("td", {
-    className: "muted"
-  }, ev.years.join(', ')), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("button", {
+  }, "Every column is editable here \u2014 edits save as you make them. Changing which year levels an event runs at ", /*#__PURE__*/React.createElement("strong", null, "renumbers the sheets"), ", so do it before printing rather than after, or the numbers on the paper will no longer match."), /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Event"), /*#__PURE__*/React.createElement("th", {
+    style: {
+      width: 110
+    }
+  }, "Type"), /*#__PURE__*/React.createElement("th", {
+    style: {
+      width: 190
+    }
+  }, "Winner"), /*#__PURE__*/React.createElement("th", {
+    style: {
+      width: 100
+    }
+  }, "Unit"), /*#__PURE__*/React.createElement("th", null, "Year levels"), /*#__PURE__*/React.createElement("th", {
+    style: {
+      width: 90
+    }
+  }))), /*#__PURE__*/React.createElement("tbody", null, events.map(ev => /*#__PURE__*/React.createElement("tr", {
+    key: ev.id
+  }, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("input", {
+    type: "text",
+    value: ev.name,
+    style: {
+      marginTop: 0
+    },
+    "aria-label": "Event name",
+    onChange: e => patch(ev.id, {
+      name: e.target.value
+    })
+  })), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("select", {
+    value: ev.type,
+    style: {
+      marginTop: 0
+    },
+    "aria-label": "Event type",
+    onChange: e => patch(ev.id, {
+      type: e.target.value
+    })
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "track"
+  }, "Track"), /*#__PURE__*/React.createElement("option", {
+    value: "field"
+  }, "Field"), /*#__PURE__*/React.createElement("option", {
+    value: "relay"
+  }, "Relay"))), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("select", {
+    value: ev.scoring,
+    style: {
+      marginTop: 0
+    },
+    "aria-label": "Winner is",
+    onChange: e => patch(ev.id, {
+      scoring: e.target.value
+    })
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "lower"
+  }, "Fastest (lowest)"), /*#__PURE__*/React.createElement("option", {
+    value: "higher"
+  }, "Furthest / highest"))), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("select", {
+    value: ev.unit,
+    style: {
+      marginTop: 0
+    },
+    "aria-label": "Unit",
+    onChange: e => patch(ev.id, {
+      unit: e.target.value
+    })
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "sec"
+  }, "seconds"), /*#__PURE__*/React.createElement("option", {
+    value: "m"
+  }, "metres"), /*#__PURE__*/React.createElement("option", {
+    value: "cm"
+  }, "centimetres"))), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      gap: 8,
+      flexWrap: 'wrap'
+    }
+  }, YEARS.map(y => /*#__PURE__*/React.createElement("label", {
+    key: y,
+    style: {
+      fontSize: 13,
+      whiteSpace: 'nowrap'
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: ev.years.includes(y),
+    onChange: () => patch(ev.id, {
+      years: ev.years.includes(y) ? ev.years.filter(x => x !== y) : YEARS.filter(x => ev.years.includes(x) || x === y)
+    })
+  }), ' ', y)))), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("button", {
     className: "btn-ghost btn-sm",
     onClick: () => remove(ev.id)
   }, "Remove"))))))));

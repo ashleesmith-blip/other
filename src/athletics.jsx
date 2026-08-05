@@ -323,10 +323,14 @@ function EventsTab({ events, setEvents }) {
     setEvents(events.concat([{ ...draft, id: uid('e'), name: draft.name.trim() }]));
     setDraft(blank);
   };
+  const patch = (id, changes) => setEvents(events.map(e => e.id === id ? { ...e, ...changes } : e));
+
   const remove = (id) => {
-    if (confirm('Remove this event? Results recorded against it stay in the data but will not be shown.')) {
-      setEvents(events.filter(e => e.id !== id));
-    }
+    const ev = events.find(e => e.id === id);
+    if (!confirm('Remove ' + (ev ? ev.name : 'this event') + '?\n\n' +
+      'Results recorded against it stay in the data but stop being shown, and every sheet ' +
+      'number after it shifts.')) return;
+    setEvents(events.filter(e => e.id !== id));
   };
   const toggleYear = (y) => setDraft(d => ({
     ...d,
@@ -383,17 +387,64 @@ function EventsTab({ events, setEvents }) {
       </div>
 
       <div className="card">
+        <p className="muted" style={{ marginTop: 0 }}>
+          Every column is editable here — edits save as you make them. Changing which year levels an
+          event runs at <strong>renumbers the sheets</strong>, so do it before printing rather than
+          after, or the numbers on the paper will no longer match.
+        </p>
         <table>
           <thead>
-            <tr><th>Event</th><th>Type</th><th>Winner</th><th>Year levels</th><th></th></tr>
+            <tr>
+              <th>Event</th><th style={{ width: 110 }}>Type</th>
+              <th style={{ width: 190 }}>Winner</th><th style={{ width: 100 }}>Unit</th>
+              <th>Year levels</th><th style={{ width: 90 }}></th>
+            </tr>
           </thead>
           <tbody>
             {events.map(ev => (
               <tr key={ev.id}>
-                <td><strong>{ev.name}</strong></td>
-                <td style={{ textTransform: 'capitalize' }}>{ev.type}</td>
-                <td className="muted">{ev.scoring === 'lower' ? 'fastest' : 'furthest / highest'} ({ev.unit})</td>
-                <td className="muted">{ev.years.join(', ')}</td>
+                <td>
+                  <input type="text" value={ev.name} style={{ marginTop: 0 }} aria-label="Event name"
+                    onChange={e => patch(ev.id, { name: e.target.value })} />
+                </td>
+                <td>
+                  <select value={ev.type} style={{ marginTop: 0 }} aria-label="Event type"
+                    onChange={e => patch(ev.id, { type: e.target.value })}>
+                    <option value="track">Track</option>
+                    <option value="field">Field</option>
+                    <option value="relay">Relay</option>
+                  </select>
+                </td>
+                <td>
+                  <select value={ev.scoring} style={{ marginTop: 0 }} aria-label="Winner is"
+                    onChange={e => patch(ev.id, { scoring: e.target.value })}>
+                    <option value="lower">Fastest (lowest)</option>
+                    <option value="higher">Furthest / highest</option>
+                  </select>
+                </td>
+                <td>
+                  <select value={ev.unit} style={{ marginTop: 0 }} aria-label="Unit"
+                    onChange={e => patch(ev.id, { unit: e.target.value })}>
+                    <option value="sec">seconds</option>
+                    <option value="m">metres</option>
+                    <option value="cm">centimetres</option>
+                  </select>
+                </td>
+                <td>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {YEARS.map(y => (
+                      <label key={y} style={{ fontSize: 13, whiteSpace: 'nowrap' }}>
+                        <input type="checkbox" checked={ev.years.includes(y)}
+                          onChange={() => patch(ev.id, {
+                            years: ev.years.includes(y)
+                              ? ev.years.filter(x => x !== y)
+                              : YEARS.filter(x => ev.years.includes(x) || x === y),
+                          })} />
+                        {' '}{y}
+                      </label>
+                    ))}
+                  </div>
+                </td>
                 <td><button className="btn-ghost btn-sm" onClick={() => remove(ev.id)}>Remove</button></td>
               </tr>
             ))}

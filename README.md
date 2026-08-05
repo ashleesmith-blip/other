@@ -20,7 +20,7 @@ to regenerate `index.html`.
 
 | Tab | What it does |
 | --- | --- |
-| **Events** | The standard program is pre-loaded — 100m, 200m, 800m, 1500m, 80m hurdles, long/triple/high jump, shot put, discus, 4x100m relay — each with the year levels it runs at and whether the winner is the fastest or the furthest. Add your own. |
+| **Events** | The standard program is pre-loaded — 100m, 200m, 800m, 1500m, 80m hurdles, long/triple/high jump, shot put, discus, 4x100m relay. Every column is editable in the table: name, type, whether the winner is fastest or furthest, unit, and the year levels it runs at. Add your own. Changing year levels renumbers the sheets, so do it before printing. |
 | **Houses** | The overall tally — participation and placing points per house, ranked, with the breakdown and the points scheme. |
 | **Students** | The whole list, filterable by year, house and name. Every column is editable straight in the table — name, year, gender, house, homegroup and beep test. A hundred rows show at a time; search or filter to reach the rest. **Change a whole group at once** moves a homegroup, a year level, everyone currently shown by the filters, or everyone missing a year level — for rollover, or when a homegroup code didn't give the right year on import. |
 | **Import** | Paste four columns out of Excel — **Name, Gender, Homegroup, House** — or load a `.json`/`.csv`. Year level is read from the homegroup code (`I3P` → 3), houses named in the file are created if they don't exist, and re-importing skips anyone already on the list. Everything previews before it applies. There's a download button here to back the list up. |
