@@ -256,7 +256,7 @@ function useSupabaseSync(state, apply) {
    * would empty it. Anything that would wipe a populated list has to be
    * confirmed; everything else applies silently.
    */
-  const applyRemote = (remote) => {
+  const applyRemote = (remote, ask) => {
     const local = stateRef.current;
     const wipes = [
       ['students', (local.students || []).length, (remote.students || []).length],
@@ -266,6 +266,11 @@ function useSupabaseSync(state, apply) {
 
     if (wipes.length) {
       const lost = wipes.map(([what, mine]) => mine + ' ' + what).join(', ');
+      if (!ask) {
+        setStatus({ phase: 'ok', at: new Date(), error: null,
+          note: 'not pulled — Supabase is empty and this browser holds ' + lost });
+        return false;
+      }
       const ok = confirm(
         'Supabase has no ' + wipes.map(w => w[0]).join(' or ') + ', but this browser has ' + lost + '.\n\n' +
         'Pulling would erase them here.\n\n' +
@@ -285,7 +290,7 @@ function useSupabaseSync(state, apply) {
     if (!cfg.url || !cfg.key) throw new Error('Project URL and anon key are both needed.');
     setStatus(s => ({ ...s, phase: 'working', error: null }));
     const remote = await pullAll(cfg);
-    if (!applyRemote(remote)) return null;
+    if (!applyRemote(remote, true)) return null;
     shadow.current = remote;
     setStatus({ phase: 'ok', at: new Date(), error: null,
       note: 'pulled ' + remote.students.length + ' students, ' + remote.results.length + ' results' });
@@ -341,7 +346,7 @@ function useSupabaseSync(state, apply) {
       try {
         const remote = await pullAll(config);
         if (!stop && !sameJson(remote, shadow.current)) {
-          if (applyRemote(remote)) {
+          if (applyRemote(remote, false)) {
             shadow.current = remote;
             setStatus({ phase: 'ok', at: new Date(), error: null, note: 'updated from the server' });
           }
